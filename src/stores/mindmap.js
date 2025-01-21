@@ -76,135 +76,69 @@ export const useMindmapStore = defineStore('mindmap', () => {
     }
   }
 
-  // 修改 addNode 方法
-  function addNode(node) {
-    try {
-      console.log('Adding node:', node)
-      
-      // 获取所有现有节点
-      const existingNodes = Array.from(ymap.values())
-      
-      // 检查初始位置是否有重叠
-      let position = { ...node.position }
-      
-      if (node.parentId) {
-        // 如果是子节点，使用父节点相关的布局
-        const parentNode = ymap.get(node.parentId)
-        const siblings = existingNodes.filter(n => n.parentId === node.parentId)
-        position = calculateChildPosition(parentNode, siblings)
-      } else {
-        // 如果是根节点，使用右侧优先的布局
-        position = findAvailablePosition(position, existingNodes)
-      }
-
-      // 创建新节点
-      const newNode = {
-        id: uuidv4(),
-        content: node.content || '新节点',
-        position,
-        parentId: node.parentId || null,
-        style: node.style || {
-          backgroundColor: '#ffffff',
-          textColor: '#333333',
-          borderColor: '#ddd'
-        }
-      }
-      
-      // 使用事务来确保原子性
-      ydoc.transact(() => {
-        ymap.set(newNode.id, newNode)
-      })
-
-      // 更新选中状态
-      selectedNodeId.value = newNode.id
-      updateNodes()
-
-      return newNode.id
-    } catch (error) {
-      console.error('Error adding node:', error)
-      return null
-    }
+  // 修改常量配置
+  const LAYOUT_CONFIG = {
+    HORIZONTAL_SPACING: 200,  // 父子节点之间的水平间距
+    VERTICAL_SPACING: 60,    // 兄弟节点之间的垂直间距
+    NODE_WIDTH: 120,        // 节点的标准宽度
+    NODE_HEIGHT: 40,        // 节点的标准高度
+    CURVE_OFFSET: 50       // 连接线的弧度偏移量
   }
 
   // 修改 calculateChildPosition 函数
   function calculateChildPosition(parentNode, siblings) {
-    const VERTICAL_SPACING = 60  // 垂直间距
-    const HORIZONTAL_SPACING = 200  // 水平间距
+    const totalSiblings = siblings.length + 1
     
-    // 获取父节点的所有子节点（包括子节点的子节点）
-    function getAllDescendants(nodeId) {
-      const descendants = []
-      const stack = [nodeId]
+    // 计算父节点的中心点
+    const parentCenterX = parentNode.position.x + LAYOUT_CONFIG.NODE_WIDTH / 2
+    const parentCenterY = parentNode.position.y + LAYOUT_CONFIG.NODE_HEIGHT / 2
+
+    // 新节点的 X 坐标（在父节点右侧固定距离）
+    const newX = parentNode.position.x + LAYOUT_CONFIG.HORIZONTAL_SPACING
+
+    // 计算 Y 坐标
+    let newY
+
+    if (totalSiblings === 1) {
+      // 如果是第一个子节点，与父节点在同一水平线上
+      newY = parentNode.position.y
+    } else {
+      // 计算子节点分布的总高度
+      const totalHeight = (totalSiblings - 1) * LAYOUT_CONFIG.VERTICAL_SPACING
       
-      while (stack.length > 0) {
-        const currentId = stack.pop()
-        const children = Array.from(ymap.values()).filter(n => n.parentId === currentId)
-        descendants.push(...children)
-        stack.push(...children.map(child => child.id))
-      }
+      // 计算起始 Y 坐标（让子节点群居中对齐于父节点）
+      const startY = parentCenterY - totalHeight / 2
       
-      return descendants
+      // 重新排列现有的子节点
+      siblings.forEach((sibling, index) => {
+        const siblingY = startY + (index * LAYOUT_CONFIG.VERTICAL_SPACING)
+        
+        // 只有当位置发生变化时才移动节点
+        if (sibling.position.y !== siblingY) {
+          moveNode(sibling.id, {
+            x: newX,  // 所有子节点都在同一垂直线上
+            y: siblingY
+          }, { skipRearrange: true })
+        }
+      })
+
+      // 新节点的 Y 坐标（在现有子节点下方）
+      newY = startY + (siblings.length * LAYOUT_CONFIG.VERTICAL_SPACING)
     }
 
-    // 获取节点的所有直接子节点
-    function getDirectChildren(nodeId) {
-      return Array.from(ymap.values()).filter(n => n.parentId === nodeId)
-    }
+    // 计算连接线的控制点
+    const controlPoint1X = parentCenterX + LAYOUT_CONFIG.CURVE_OFFSET
+    const controlPoint2X = newX - LAYOUT_CONFIG.CURVE_OFFSET
 
-    // 计算节点及其子树的总高度
-    function calculateSubtreeHeight(nodeId) {
-      const children = getDirectChildren(nodeId)
-      if (children.length === 0) return VERTICAL_SPACING
-      
-      const childrenHeights = children.map(child => calculateSubtreeHeight(child.id))
-      return Math.max(...childrenHeights) * children.length
-    }
-
-    // 默认在父节点右侧
-    let x = parentNode.position.x + HORIZONTAL_SPACING
-
-    // 如果是第一个子节点，直接放在父节点同一水平线上
-    if (siblings.length === 0) {
-      return {
-        x,
-        y: parentNode.position.y
-      }
-    }
-
-    // 计算所有现有子节点的子树高度
-    const subtreeHeights = siblings.map(sibling => calculateSubtreeHeight(sibling.id))
-    const totalHeight = subtreeHeights.reduce((sum, height) => sum + height, 0)
-    const startY = parentNode.position.y - totalHeight / 2
-
-    // 重新排列所有现有子节点
-    let currentY = startY
-    siblings.forEach((sibling, index) => {
-      const subtreeHeight = subtreeHeights[index]
-      const newY = currentY + subtreeHeight / 2
-
-      // 移动当前子节点
-      moveNode(sibling.id, {
-        x: sibling.position.x,
-        y: newY
-      }, { skipRearrange: true })
-
-      // 递归调整子节点的子节点
-      const children = getDirectChildren(sibling.id)
-      if (children.length > 0) {
-        const childSiblings = children.filter(child => child.id !== sibling.id)
-        childSiblings.forEach(child => {
-          const newChildPosition = calculateChildPosition(sibling, childSiblings)
-          moveNode(child.id, newChildPosition, { skipRearrange: true })
-        })
-      }
-
-      currentY += subtreeHeight
-    })
-
-    // 新节点的位置
     return {
-      x,
-      y: currentY + VERTICAL_SPACING / 2
+      x: newX,
+      y: newY,
+      controlPoints: {
+        c1x: controlPoint1X,
+        c1y: parentCenterY,
+        c2x: controlPoint2X,
+        c2y: newY + LAYOUT_CONFIG.NODE_HEIGHT / 2
+      }
     }
   }
 
@@ -534,6 +468,63 @@ export const useMindmapStore = defineStore('mindmap', () => {
         color: `#${Math.floor(Math.random()*16777215).toString(16)}`
       }
     })
+  }
+
+  // 在 calculateChildPosition 函数后添加
+  function addNode(node) {
+    try {
+      console.log('Adding node:', node)
+      
+      // 获取所有现有节点
+      const existingNodes = Array.from(ymap.values())
+      
+      // 检查初始位置是否有重叠
+      let position = { ...node.position }
+      
+      if (node.parentId) {
+        // 如果是子节点，使用父节点相关的布局
+        const parentNode = ymap.get(node.parentId)
+        if (!parentNode) return null
+
+        // 获取同级节点（不包括新节点）
+        const siblings = existingNodes
+          .filter(n => n.parentId === node.parentId)
+          .sort((a, b) => a.position.y - b.position.y)
+
+        // 计算新节点位置
+        position = calculateChildPosition(parentNode, siblings)
+      } else {
+        // 如果是根节点，使用右侧优先的布局
+        position = findAvailablePosition(position, existingNodes)
+      }
+
+      // 创建新节点
+      const newNode = {
+        id: uuidv4(),
+        content: node.content || '新节点',
+        position,
+        parentId: node.parentId || null,
+        style: node.style || {
+          backgroundColor: '#ffffff',
+          textColor: '#333333',
+          borderColor: '#ddd'
+        }
+      }
+      
+      // 使用事务来确保原子性
+      ydoc.transact(() => {
+        ymap.set(newNode.id, newNode)
+      })
+
+      // 更新选中状态
+      selectedNodeId.value = newNode.id
+      updateNodes()
+
+      return newNode.id
+    } catch (error) {
+      console.error('Error adding node:', error)
+      return null
+    }
   }
 
   return {

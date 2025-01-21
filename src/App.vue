@@ -114,26 +114,21 @@
           :width="10000" 
           :height="10000"
         >
-          <g :style="{
-            transform: `scale(${scale})`,
-            transformOrigin: '0 0'
-          }">
-            <g v-for="node in mindmapStore.visibleNodes" :key="`connection-${node.id}`">
-              <template v-if="node.parentId">
-                <path
-                  :d="getConnectionPath(node)"
-                  stroke="#409eff"
-                  stroke-width="2"
-                  fill="none"
-                />
-                <circle
-                  :cx="node.position.x"
-                  :cy="node.position.y + 20"
-                  r="3"
-                  fill="#409eff"
-                />
-              </template>
-            </g>
+          <g v-for="node in mindmapStore.visibleNodes" :key="`connection-${node.id}`">
+            <template v-if="node.parentId">
+              <path
+                :d="getConnectionPath(node)"
+                stroke="#409eff"
+                stroke-width="2"
+                fill="none"
+              />
+              <circle
+                :cx="node.position.x"
+                :cy="node.position.y + LAYOUT_CONFIG.NODE_HEIGHT / 2"
+                r="3"
+                fill="#409eff"
+              />
+            </template>
           </g>
         </svg>
         
@@ -197,6 +192,15 @@ const { handleKeydown } = useKeyboard({
 
 // 从 store 中获取 selectedNodes
 const selectedNodes = computed(() => mindmapStore.selectedNodes)
+
+// 添加布局配置常量
+const LAYOUT_CONFIG = {
+  HORIZONTAL_SPACING: 200,  // 父子节点之间的水平间距
+  VERTICAL_SPACING: 60,    // 兄弟节点之间的垂直间距
+  NODE_WIDTH: 120,        // 节点的标准宽度
+  NODE_HEIGHT: 40,        // 节点的标准高度
+  CURVE_OFFSET: 50       // 连接线的弧度偏移量
+}
 
 // 添加获取父节点位置的方法
 function getParentPosition(node) {
@@ -574,20 +578,25 @@ function getConnectionPath(node) {
   const parent = mindmapStore.getNode(node.parentId)
   if (!parent) return ''
 
-  // 计算连接点坐标
-  const startX = parent.position.x + 120  // 父节点右边缘
-  const startY = parent.position.y + 20   // 父节点垂直中心
-  const endX = node.position.x            // 子节点左边缘
-  const endY = node.position.y + 20       // 子节点垂直中心
+  // 计算起点（父节点右侧中心）
+  const startX = parent.position.x + LAYOUT_CONFIG.NODE_WIDTH
+  const startY = parent.position.y + LAYOUT_CONFIG.NODE_HEIGHT / 2
 
-  // 控制点的水平偏移量（考虑缩放）
-  const offset = Math.min((endX - startX) * 0.4, 100)
+  // 计算终点（子节点左侧中心）
+  const endX = node.position.x
+  const endY = node.position.y + LAYOUT_CONFIG.NODE_HEIGHT / 2
+
+  // 计算水平和垂直距离
+  const dx = endX - startX
+  const dy = endY - startY
+
+  // XMind 风格的连接线：先水平延伸，然后垂直转弯，最后水平到达终点
+  const horizontalOffset = dx * 0.5 // 水平控制点距离为总距离的一半
   
-  // 使用三次贝塞尔曲线创建平滑的连接线
   return `
     M ${startX} ${startY}
-    C ${startX + offset} ${startY}
-      ${endX - offset} ${endY}
+    C ${startX + horizontalOffset} ${startY}
+      ${endX - horizontalOffset} ${endY}
       ${endX} ${endY}
   `.trim()
 }
@@ -719,6 +728,53 @@ function alignNodes(type) {
     mindmapStore.alignSelectedNodes(alignType)
   }
 }
+
+// 修改 calculateChildPosition 函数中的布局计算
+function calculateChildPosition(parentNode, siblings) {
+  const totalSiblings = siblings.length + 1
+  
+  // 计算父节点的中心点
+  const parentCenterX = parentNode.position.x + LAYOUT_CONFIG.NODE_WIDTH / 2
+  const parentCenterY = parentNode.position.y + LAYOUT_CONFIG.NODE_HEIGHT / 2
+
+  // 新节点的 X 坐标（在父节点右侧固定距离）
+  const newX = parentNode.position.x + LAYOUT_CONFIG.HORIZONTAL_SPACING
+
+  // 计算 Y 坐标
+  let newY
+
+  if (totalSiblings === 1) {
+    // 如果是第一个子节点，与父节点在同一水平线上
+    newY = parentNode.position.y
+  } else {
+    // 计算子节点分布的总高度
+    const totalHeight = (totalSiblings - 1) * LAYOUT_CONFIG.VERTICAL_SPACING
+    
+    // 计算起始 Y 坐标（让子节点群居中对齐于父节点）
+    const startY = parentCenterY - totalHeight / 2
+    
+    // 重新排列现有的子节点
+    siblings.forEach((sibling, index) => {
+      const siblingY = startY + (index * LAYOUT_CONFIG.VERTICAL_SPACING)
+      
+      // 只有当位置发生变化时才移动节点
+      if (sibling.position.y !== siblingY) {
+        moveNode(sibling.id, {
+          x: newX,  // 所有子节点都在同一垂直线上
+          y: siblingY
+        }, { skipRearrange: true })
+      }
+    })
+
+    // 新节点的 Y 坐标（在现有子节点下方）
+    newY = startY + (siblings.length * LAYOUT_CONFIG.VERTICAL_SPACING)
+  }
+
+  return {
+    x: newX,
+    y: newY
+  }
+}
 </script>
 
 <style>
@@ -817,15 +873,18 @@ function alignNodes(type) {
   pointer-events: none;
   z-index: 1;
   overflow: visible;
+  transform-origin: center center;
 }
 
 .connections path {
   transition: all 0.3s ease;
   stroke-linecap: round;
+  transform: none;
 }
 
 .connections circle {
   transition: all 0.3s ease;
+  transform: none;
 }
 
 .nodes-container {
