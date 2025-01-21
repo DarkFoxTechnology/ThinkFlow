@@ -796,35 +796,55 @@ function getConnectionPath(node) {
 }
 
 // Canvas position and zoom
-const canvasPosition = ref({ x: 0, y: 0 })
+const canvasPosition = ref({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
 const scale = ref(1)
 const isDragging = ref(false)
-const lastMousePosition = ref({ x: 0, y: 0 })
+const lastMousePosition = ref(null)
 
 // Drag handlers
 function startDrag(event) {
-  // Only start drag if clicking the background
+  // 只有点击背景或画布时才启动拖拽
   if (event.target.classList.contains('mindmap') || 
       event.target.classList.contains('canvas')) {
+    event.preventDefault()
     isDragging.value = true
     lastMousePosition.value = {
-      x: event.clientX - canvasPosition.value.x,
-      y: event.clientY - canvasPosition.value.y
+      x: event.clientX,
+      y: event.clientY
     }
+    // 设置鼠标样式
+    event.target.style.cursor = 'grabbing'
   }
 }
 
 function onDrag(event) {
-  if (!isDragging.value) return
+  if (!isDragging.value || !lastMousePosition.value) return
+  
+  const deltaX = event.clientX - lastMousePosition.value.x
+  const deltaY = event.clientY - lastMousePosition.value.y
   
   canvasPosition.value = {
-    x: event.clientX - lastMousePosition.value.x,
-    y: event.clientY - lastMousePosition.value.y
+    x: canvasPosition.value.x + deltaX,
+    y: canvasPosition.value.y + deltaY
+  }
+  
+  lastMousePosition.value = {
+    x: event.clientX,
+    y: event.clientY
   }
 }
 
-function stopDrag() {
-  isDragging.value = false
+function stopDrag(event) {
+  if (isDragging.value) {
+    isDragging.value = false
+    lastMousePosition.value = null
+    // 恢复鼠标样式
+    const target = event.target
+    if (target.classList.contains('mindmap') || 
+        target.classList.contains('canvas')) {
+      target.style.cursor = 'grab'
+    }
+  }
 }
 
 // Zoom handler
@@ -835,19 +855,20 @@ function handleZoom(event) {
   const MIN_SCALE = 0.1
   const MAX_SCALE = 3
   
-  // Calculate new scale
+  // 计算新的缩放比例
   const delta = event.deltaY > 0 ? -ZOOM_SPEED : ZOOM_SPEED
   const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale.value + delta))
   
-  // Calculate zoom center (mouse position)
+  // 获取鼠标相对于画布的位置
   const rect = event.currentTarget.getBoundingClientRect()
-  const x = event.clientX - rect.left
-  const y = event.clientY - rect.top
+  const mouseX = event.clientX - rect.left
+  const mouseY = event.clientY - rect.top
   
-  // Adjust position to zoom into mouse position
+  // 计算缩放后的位置调整
+  const scaleChange = newScale - scale.value
   canvasPosition.value = {
-    x: x - (x - canvasPosition.value.x) * (newScale / scale.value),
-    y: y - (y - canvasPosition.value.y) * (newScale / scale.value)
+    x: canvasPosition.value.x - (mouseX - canvasPosition.value.x) * (scaleChange / scale.value),
+    y: canvasPosition.value.y - (mouseY - canvasPosition.value.y) * (scaleChange / scale.value)
   }
   
   scale.value = newScale
@@ -855,6 +876,13 @@ function handleZoom(event) {
 
 // Center canvas on mount
 onMounted(() => {
+  // 移除旧的事件监听
+  window.removeEventListener('keydown', handleKeydown)
+  
+  // 添加新的事件监听
+  window.addEventListener('keydown', handleKeydown)
+  
+  // 初始化画布位置到中心
   const container = document.querySelector('.mindmap')
   if (container) {
     canvasPosition.value = {
@@ -945,8 +973,9 @@ onMounted(() => {
   position: absolute;
   width: 100%;
   height: 100%;
-  transform-origin: 0 0;
+  transform-origin: center center;
   will-change: transform;
+  touch-action: none;
 }
 
 .connections {
@@ -961,12 +990,12 @@ onMounted(() => {
 
 .nodes-container {
   position: relative;
-  width: 100%;
-  height: 100%;
+  pointer-events: none;
 }
 
 .node {
   position: absolute;
+  pointer-events: auto;
   transition: transform 0.3s ease;
 }
 
