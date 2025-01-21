@@ -70,6 +70,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
       if (!ymap) return
       const allNodes = Array.from(ymap.values() || [])
       nodes.value = filterCollapsedNodes(allNodes)
+      console.log('Nodes updated:', nodes.value)
     } catch (error) {
       console.error('Error updating nodes:', error)
     }
@@ -101,6 +102,9 @@ export const useMindmapStore = defineStore('mindmap', () => {
 
       // 更新选中状态
       selectedNodeId.value = newNode.id
+
+      // 立即更新节点数据
+      updateNodes()
 
       console.log('Node added successfully:', newNode)
       return newNode.id
@@ -286,6 +290,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
 
   // 监听 ymap 变化
   ymap.observe(() => {
+    console.log('ymap changed, updating nodes')
     updateNodes()
   })
 
