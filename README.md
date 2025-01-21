@@ -88,8 +88,7 @@ A real-time collaborative mind mapping application built with Vue.js and Node.js
 1. **Installation**
    ```bash
    # Clone the repository
-   git clone [repository-url]
-   cd online-mindmap
+   git clone https://github.com/DarkFoxTechnology/ThinkFlow.git
 
    # Install dependencies
    npm install
