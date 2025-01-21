@@ -51,6 +51,44 @@
           <span v-else class="saved">已保存</span>
           <span class="collaborators">在线用户: {{ collaboratorsCount }}</span>
         </div>
+        
+        <div class="align-tools" v-if="hasMultipleNodesSelected">
+          <button 
+            class="toolbar-button"
+            @click="alignNodes('left')"
+            title="左对齐"
+          >
+            ⇤
+          </button>
+          <button 
+            class="toolbar-button"
+            @click="alignNodes('center')"
+            title="居中对齐"
+          >
+            ⇔
+          </button>
+          <button 
+            class="toolbar-button"
+            @click="alignNodes('right')"
+            title="右对齐"
+          >
+            ⇥
+          </button>
+          <button 
+            class="toolbar-button"
+            @click="alignNodes('top')"
+            title="上对齐"
+          >
+            ⇡
+          </button>
+          <button 
+            class="toolbar-button"
+            @click="alignNodes('bottom')"
+            title="下对齐"
+          >
+            ⇣
+          </button>
+        </div>
       </div>
     </div>
     
@@ -69,24 +107,33 @@
           cursor: isDragging ? 'grabbing' : 'grab'
         }"
       >
-        <svg class="connections">
-          <g v-for="node in mindmapStore.visibleNodes" :key="`connection-${node.id}`">
-            <template v-if="node.parentId">
-              <!-- 连接线 -->
-              <path
-                :d="getConnectionPath(node)"
-                stroke="#409eff"
-                stroke-width="2"
-                fill="none"
-              />
-              <!-- 箭头 -->
-              <circle
-                :cx="node.position.x"
-                :cy="node.position.y + 20"
-                r="3"
-                fill="#409eff"
-              />
-            </template>
+        <div class="grid-background"></div>
+        
+        <svg 
+          class="connections" 
+          :width="10000" 
+          :height="10000"
+        >
+          <g :style="{
+            transform: `scale(${scale})`,
+            transformOrigin: '0 0'
+          }">
+            <g v-for="node in mindmapStore.visibleNodes" :key="`connection-${node.id}`">
+              <template v-if="node.parentId">
+                <path
+                  :d="getConnectionPath(node)"
+                  stroke="#409eff"
+                  stroke-width="2"
+                  fill="none"
+                />
+                <circle
+                  :cx="node.position.x"
+                  :cy="node.position.y + 20"
+                  r="3"
+                  fill="#409eff"
+                />
+              </template>
+            </g>
           </g>
         </svg>
         
@@ -147,6 +194,9 @@ const { handleKeydown } = useKeyboard({
   undo,
   redo
 })
+
+// 从 store 中获取 selectedNodes
+const selectedNodes = computed(() => mindmapStore.selectedNodes)
 
 // 添加获取父节点位置的方法
 function getParentPosition(node) {
@@ -530,8 +580,8 @@ function getConnectionPath(node) {
   const endX = node.position.x            // 子节点左边缘
   const endY = node.position.y + 20       // 子节点垂直中心
 
-  // 控制点的水平偏移量
-  const offset = (endX - startX) * 0.4
+  // 控制点的水平偏移量（考虑缩放）
+  const offset = Math.min((endX - startX) * 0.4, 100)
   
   // 使用三次贝塞尔曲线创建平滑的连接线
   return `
@@ -539,7 +589,7 @@ function getConnectionPath(node) {
     C ${startX + offset} ${startY}
       ${endX - offset} ${endY}
       ${endX} ${endY}
-  `
+  `.trim()
 }
 
 // Canvas position and zoom
@@ -647,6 +697,28 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleResize)
 })
+
+// 添加计算属性来安全地检查选中节点数量
+const hasMultipleNodesSelected = computed(() => {
+  return selectedNodes.value?.size > 1
+})
+
+// 添加对齐方法
+function alignNodes(type) {
+  if (!selectedNodes.value?.size) return
+  
+  const alignType = {
+    left: 'LEFT',
+    center: 'CENTER',
+    right: 'RIGHT',
+    top: 'TOP',
+    bottom: 'BOTTOM'
+  }[type]
+
+  if (alignType) {
+    mindmapStore.alignSelectedNodes(alignType)
+  }
+}
 </script>
 
 <style>
@@ -721,7 +793,7 @@ onUnmounted(() => {
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: #fafafa;
+  background: #ffffff;
   user-select: none;
 }
 
@@ -732,6 +804,8 @@ onUnmounted(() => {
   transform-origin: center center;
   will-change: transform;
   touch-action: none;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 .connections {
@@ -741,7 +815,8 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
+  overflow: visible;
 }
 
 .connections path {
@@ -755,13 +830,12 @@ onUnmounted(() => {
 
 .nodes-container {
   position: relative;
-  pointer-events: none;
+  z-index: 2;
 }
 
 .node {
   position: absolute;
-  pointer-events: auto;
-  transition: transform 0.3s ease;
+  z-index: 3;
 }
 
 .selection-rect {
@@ -808,5 +882,68 @@ onUnmounted(() => {
 .node:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.align-tools {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.align-tools .toolbar-button {
+  font-size: 18px;
+  padding: 4px 8px;
+  min-width: 32px;
+}
+
+/* 添加网格背景样式 */
+.grid-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(64, 158, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(64, 158, 255, 0.1) 1px, transparent 1px);
+  background-position: center center;
+  width: 10000px;
+  height: 10000px;
+  transform: translate(-5000px, -5000px);
+}
+
+/* 添加主要网格线 */
+.grid-background::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-size: 200px 200px;
+  background-image: 
+    linear-gradient(to right, rgba(64, 158, 255, 0.2) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(64, 158, 255, 0.2) 1px, transparent 1px);
+  background-position: center center;
+}
+
+/* 添加中心点标记 */
+.grid-background::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2px solid rgba(64, 158, 255, 0.4);
+  background: rgba(64, 158, 255, 0.1);
 }
 </style>

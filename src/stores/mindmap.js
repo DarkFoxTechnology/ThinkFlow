@@ -131,12 +131,37 @@ export const useMindmapStore = defineStore('mindmap', () => {
     const VERTICAL_SPACING = 60  // 垂直间距
     const HORIZONTAL_SPACING = 200  // 水平间距
     
+    // 获取父节点的所有子节点（包括子节点的子节点）
+    function getAllDescendants(nodeId) {
+      const descendants = []
+      const stack = [nodeId]
+      
+      while (stack.length > 0) {
+        const currentId = stack.pop()
+        const children = Array.from(ymap.values()).filter(n => n.parentId === currentId)
+        descendants.push(...children)
+        stack.push(...children.map(child => child.id))
+      }
+      
+      return descendants
+    }
+
+    // 获取节点的所有直接子节点
+    function getDirectChildren(nodeId) {
+      return Array.from(ymap.values()).filter(n => n.parentId === nodeId)
+    }
+
+    // 计算节点及其子树的总高度
+    function calculateSubtreeHeight(nodeId) {
+      const children = getDirectChildren(nodeId)
+      if (children.length === 0) return VERTICAL_SPACING
+      
+      const childrenHeights = children.map(child => calculateSubtreeHeight(child.id))
+      return Math.max(...childrenHeights) * children.length
+    }
+
     // 默认在父节点右侧
     let x = parentNode.position.x + HORIZONTAL_SPACING
-    
-    // 计算新节点的位置
-    const totalNodes = siblings.length + 1  // 包括新节点
-    let y = 0
 
     // 如果是第一个子节点，直接放在父节点同一水平线上
     if (siblings.length === 0) {
@@ -146,25 +171,40 @@ export const useMindmapStore = defineStore('mindmap', () => {
       }
     }
 
-    // 重新排列所有现有子节点
-    const totalHeight = (totalNodes - 1) * VERTICAL_SPACING
+    // 计算所有现有子节点的子树高度
+    const subtreeHeights = siblings.map(sibling => calculateSubtreeHeight(sibling.id))
+    const totalHeight = subtreeHeights.reduce((sum, height) => sum + height, 0)
     const startY = parentNode.position.y - totalHeight / 2
 
-    // 先移动现有节点
+    // 重新排列所有现有子节点
+    let currentY = startY
     siblings.forEach((sibling, index) => {
-      const newY = startY + index * VERTICAL_SPACING
-      
-      // 移动现有节点
+      const subtreeHeight = subtreeHeights[index]
+      const newY = currentY + subtreeHeight / 2
+
+      // 移动当前子节点
       moveNode(sibling.id, {
         x: sibling.position.x,
         y: newY
-      }, { skipRearrange: true })  // 使用 skipRearrange 避免触发碰撞检测
+      }, { skipRearrange: true })
+
+      // 递归调整子节点的子节点
+      const children = getDirectChildren(sibling.id)
+      if (children.length > 0) {
+        const childSiblings = children.filter(child => child.id !== sibling.id)
+        childSiblings.forEach(child => {
+          const newChildPosition = calculateChildPosition(sibling, childSiblings)
+          moveNode(child.id, newChildPosition, { skipRearrange: true })
+        })
+      }
+
+      currentY += subtreeHeight
     })
 
-    // 新节点放在最下方
+    // 新节点的位置
     return {
       x,
-      y: startY + siblings.length * VERTICAL_SPACING
+      y: currentY + VERTICAL_SPACING / 2
     }
   }
 
