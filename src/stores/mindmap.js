@@ -76,67 +76,141 @@ export const useMindmapStore = defineStore('mindmap', () => {
     }
   }
 
-  // 修改常量配置
-  const LAYOUT_CONFIG = {
-    HORIZONTAL_SPACING: 200,  // 父子节点之间的水平间距
-    VERTICAL_SPACING: 60,    // 兄弟节点之间的垂直间距
-    NODE_WIDTH: 120,        // 节点的标准宽度
-    NODE_HEIGHT: 40,        // 节点的标准高度
-    CURVE_OFFSET: 50       // 连接线的弧度偏移量
+  // Constants for layout
+  const SPACING = {
+    HORIZONTAL: 200,  // Distance between parent and child
+    VERTICAL: 50,    // Base vertical spacing between siblings
+    MIN_SIBLING_GAP: 40  // Minimum gap between siblings
   }
 
-  // 修改 calculateChildPosition 函数
+  // Calculate child position following Xmind's behavior
   function calculateChildPosition(parentNode, siblings) {
-    const totalSiblings = siblings.length + 1
-    const SPACING = {
-      HORIZONTAL: 200,  // 水平间距
-      VERTICAL: 80     // 垂直间距
-    }
-
-    // 新节点的 X 坐标（在父节点右侧固定距离）
     const newX = parentNode.position.x + SPACING.HORIZONTAL
 
-    // 计算 Y 坐标
-    let newY
-
-    if (totalSiblings === 1) {
-      // 第一个子节点在父节点正上方
-      newY = parentNode.position.y - SPACING.VERTICAL
-    } else if (siblings.length === 1) {
-      // 第二个子节点在父节点正下方
-      newY = parentNode.position.y + SPACING.VERTICAL
-    } else {
-      // 其他节点在父节点水平位置附近均匀分布
-      const middleY = parentNode.position.y
-      const offset = SPACING.VERTICAL * 0.6 // 相对于中心点的偏移量
-      
-      // 重新排列现有子节点
-      siblings.forEach((sibling, index) => {
-        let siblingY
-        if (index === 0) {
-          siblingY = middleY - SPACING.VERTICAL // 第一个节点在上方
-        } else if (index === siblings.length - 1) {
-          siblingY = middleY + SPACING.VERTICAL // 最后一个节点在下方
-        } else {
-          // 中间节点均匀分布
-          const progress = (index) / (siblings.length - 1)
-          siblingY = middleY - offset + (progress * offset * 2)
-        }
-
-        moveNode(sibling.id, {
-          x: newX,
-          y: siblingY
-        }, { skipRearrange: true })
-      })
-
-      // 新节点放在最下方
-      newY = middleY + SPACING.VERTICAL
+    // First child aligns with parent
+    if (siblings.length === 0) {
+      return {
+        x: newX,
+        y: parentNode.position.y
+      }
     }
 
+    // Sort siblings by vertical position
+    const sortedSiblings = [...siblings].sort((a, b) => a.position.y - b.position.y)
+    
+    // Find the middle sibling (the one at parent's level)
+    const middleIndex = sortedSiblings.findIndex(node => 
+      Math.abs(node.position.y - parentNode.position.y) < 1
+    )
+
+    // Calculate the next position based on the number of siblings
+    const siblingCount = siblings.length
+    const isEven = siblingCount % 2 === 0
+
+    // If we haven't found the middle sibling, something's wrong - reset positions
+    if (middleIndex === -1) {
+      return resetChildPositions(parentNode, siblings, newX)
+    }
+
+    // Determine if the new node should go above or below
+    const aboveCount = middleIndex
+    const belowCount = siblingCount - middleIndex - 1
+
+    // Calculate spacing that increases with the number of nodes
+    const spacing = SPACING.VERTICAL * (1 + siblingCount * 0.1)
+
+    if (aboveCount <= belowCount) {
+      // Add above
+      const topMost = sortedSiblings[0]
+      return {
+        x: newX,
+        y: topMost.position.y - spacing
+      }
+    } else {
+      // Add below
+      const bottomMost = sortedSiblings[sortedSiblings.length - 1]
+      return {
+        x: newX,
+        y: bottomMost.position.y + spacing
+      }
+    }
+  }
+
+  // Reset child positions when they need to be rebalanced
+  function resetChildPositions(parentNode, siblings, newX) {
+    const count = siblings.length + 1 // Include the new node
+    const isEven = count % 2 === 0
+    const middleIndex = Math.floor(count / 2)
+    
+    // Calculate base spacing that increases with the number of nodes
+    const baseSpacing = SPACING.VERTICAL * (1 + count * 0.1)
+    
+    // Reposition all existing siblings
+    siblings.forEach((sibling, index) => {
+      let newY
+      if (isEven) {
+        if (index < middleIndex) {
+          newY = parentNode.position.y - (middleIndex - index) * baseSpacing
+        } else {
+          newY = parentNode.position.y + (index - middleIndex + 1) * baseSpacing
+        }
+      } else {
+        if (index < middleIndex) {
+          newY = parentNode.position.y - (middleIndex - index) * baseSpacing
+        } else if (index === middleIndex) {
+          newY = parentNode.position.y
+        } else {
+          newY = parentNode.position.y + (index - middleIndex) * baseSpacing
+        }
+      }
+      
+      moveNode(sibling.id, { x: newX, y: newY })
+    })
+
+    // Return position for the new node
     return {
       x: newX,
-      y: newY
+      y: parentNode.position.y + (isEven ? baseSpacing * middleIndex : 0)
     }
+  }
+
+  // Helper function to move a node and its subtree
+  function moveNode(id, newPosition) {
+    const node = ymap.get(id)
+    if (!node) return
+
+    // Calculate the offset
+    const dx = newPosition.x - node.position.x
+    const dy = newPosition.y - node.position.y
+
+    // Get all descendants
+    const allNodes = Array.from(ymap.values())
+    const descendants = getDescendants(id, allNodes)
+
+    // Move the node and all its descendants
+    ymap.set(id, { ...node, position: newPosition })
+    descendants.forEach(desc => {
+      ymap.set(desc.id, {
+        ...desc,
+        position: {
+          x: desc.position.x + dx,
+          y: desc.position.y + dy
+        }
+      })
+    })
+  }
+
+  // Get all descendants of a node
+  function getDescendants(nodeId, allNodes) {
+    const result = []
+    const children = allNodes.filter(n => n.parentId === nodeId)
+    
+    children.forEach(child => {
+      result.push(child)
+      result.push(...getDescendants(child.id, allNodes))
+    })
+    
+    return result
   }
 
   // 寻找可用位置（用于根节点）
@@ -266,44 +340,6 @@ export const useMindmapStore = defineStore('mindmap', () => {
       node1.position.y + NODE_HEIGHT + BUFFER < node2.position.y ||
       node1.position.y > node2.position.y + NODE_HEIGHT + BUFFER
     )
-  }
-
-  // 修改 moveNode 方法
-  function moveNode(id, position, { skipRearrange = false } = {}) {
-    try {
-      const node = ymap.get(id)
-      if (!node) return
-
-      // 如果是重排过程中的移动，跳过碰撞检测
-      if (skipRearrange) {
-        ymap.set(id, { ...node, position })
-        return
-      }
-
-      // 进行碰撞检测
-      const otherNodes = Array.from(ymap.values()).filter(n => n.id !== id)
-      let adjustedPosition = { ...position }
-      let hasCollision = false
-
-      do {
-        hasCollision = false
-        for (const otherNode of otherNodes) {
-          if (checkNodesCollision(
-            { position: adjustedPosition },
-            otherNode,
-            { width: 120, height: 40, buffer: 20 }
-          )) {
-            hasCollision = true
-            adjustedPosition.y += 10
-            break
-          }
-        }
-      } while (hasCollision)
-
-      ymap.set(id, { ...node, position: adjustedPosition })
-    } catch (error) {
-      console.error('Error moving node:', error)
-    }
   }
 
   function updateNodeContent(id, content) {

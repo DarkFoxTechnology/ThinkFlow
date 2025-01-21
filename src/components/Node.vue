@@ -3,6 +3,7 @@
     class="node"
     :class="{ selected: isSelected }"
     :style="nodeStyle"
+    :data-id="node.id"
     @mousedown="handleMouseDown"
     @click.stop="handleClick"
     @dblclick.stop="startEditing"
@@ -75,6 +76,7 @@ export default {
     const isEditing = ref(false)
     const editingContent = ref(props.node.content)
     const input = ref(null)
+    const nodeElement = ref(null)
     let dragStartPosition = null
     
     const isSelected = computed(() => {
@@ -113,6 +115,9 @@ export default {
         nodeX: props.node.position.x,
         nodeY: props.node.position.y
       }
+
+      // Store the node element reference
+      nodeElement.value = event.currentTarget
       
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
@@ -122,19 +127,32 @@ export default {
     }
     
     function handleMouseMove(event) {
-      if (!dragStartPosition) return
+      if (!dragStartPosition || !nodeElement.value) return
       
       const dx = (event.clientX - dragStartPosition.x) / props.scale
       const dy = (event.clientY - dragStartPosition.y) / props.scale
       
+      const newX = dragStartPosition.nodeX + dx
+      const newY = dragStartPosition.nodeY + dy
+      
+      // Update the node's position directly in the DOM
+      nodeElement.value.style.transform = `translate(${newX}px, ${newY}px)`
+    }
+    
+    function handleMouseUp(event) {
+      if (!dragStartPosition) return
+
+      const dx = (event.clientX - dragStartPosition.x) / props.scale
+      const dy = (event.clientY - dragStartPosition.y) / props.scale
+      
+      // Update the store only once at the end of dragging
       store.moveNode(props.node.id, {
         x: dragStartPosition.nodeX + dx,
         y: dragStartPosition.nodeY + dy
       })
-    }
-    
-    function handleMouseUp() {
+      
       dragStartPosition = null
+      nodeElement.value = null
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
@@ -230,6 +248,14 @@ export default {
   align-items: center;
   justify-content: center;
   user-select: none;
+  will-change: transform; /* Optimize for animations */
+  transform: translate(v-bind('node.position.x + "px"'), v-bind('node.position.y + "px"'));
+}
+
+/* Remove transition during dragging */
+.node:active {
+  transition: none;
+  cursor: grabbing;
 }
 
 .node:hover {
