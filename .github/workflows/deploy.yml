@@ -20,12 +20,12 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '18'
-          cache: 'npm'
 
       - name: Install Dependencies
         run: |
-          npm ci
-          npm install -D vite@latest
+          npm install
+          npm install @vitejs/plugin-vue@4.5.2
+          npm install vite@5.0.10
 
       - name: Build
         run: |

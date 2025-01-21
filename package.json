@@ -11,7 +11,7 @@
   "dependencies": {
     "file-saver": "^2.0.5",
     "konva": "^9.3.0",
-    "marked": "^11.1.1",
+    "marked": "^11.2.0",
     "pinia": "^2.1.7",
     "socket.io-client": "^4.7.4",
     "uuid": "^9.0.1",
@@ -22,7 +22,7 @@
     "lodash-es": "^4.17.21"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^4.5.2",
-    "vite": "^5.0.10"
+    "@vitejs/plugin-vue": "4.5.2",
+    "vite": "5.0.10"
   }
 }
