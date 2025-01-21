@@ -1,0 +1,26 @@
+{
+  "name": "mindmap",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "file-saver": "^2.0.5",
+    "konva": "^9.3.18",
+    "marked": "^9.1.6",
+    "pinia": "^2.1.7",
+    "socket.io-client": "^4.8.1",
+    "uuid": "^11.0.5",
+    "vue": "^3.4.21",
+    "y-indexeddb": "^9.0.12",
+    "y-webrtc": "^10.3.0",
+    "yjs": "^13.6.23",
+    "lodash-es": "^4.17.21"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^5.1.4"
+  }
+}
