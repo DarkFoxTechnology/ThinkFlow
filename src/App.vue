@@ -266,51 +266,80 @@ function handleKeydown(event) {
   }
 }
 
-// 处理鼠标事件
+// 在 App.vue 中添加框选相关的状态和方法
+const selectionStart = ref(null)
+const selectionEnd = ref(null)
+const selectedNodes = ref(new Set())
+
+// 修改鼠标事件处理
 function handleMouseDown(event) {
-  if (event.target === viewport.value) {
+  // 只在点击背景时启动框选
+  if (event.target === viewport.value || event.target.classList.contains('mindmap')) {
     selectionStart.value = {
       x: event.clientX + viewport.value.scrollLeft,
       y: event.clientY + viewport.value.scrollTop
     }
+    selectionEnd.value = { ...selectionStart.value }
     isSelecting.value = true
+    
+    // 如果没有按住 Shift，清除现有选择
+    if (!event.shiftKey) {
+      mindmapStore.clearSelection()
+    }
   }
 }
 
 function handleMouseMove(event) {
   if (!isSelecting.value) return
   
-  const current = {
+  selectionEnd.value = {
     x: event.clientX + viewport.value.scrollLeft,
     y: event.clientY + viewport.value.scrollTop
   }
   
-  selectionRect.value = {
-    left: Math.min(selectionStart.value.x, current.x),
-    top: Math.min(selectionStart.value.y, current.y),
-    width: Math.abs(current.x - selectionStart.value.x),
-    height: Math.abs(current.y - selectionStart.value.y)
-  }
+  updateSelectionRect()
+  updateSelectedNodes()
+}
+
+function updateSelectionRect() {
+  if (!selectionStart.value || !selectionEnd.value) return
   
-  // 检查节点是否在选区内
+  selectionRect.value = {
+    left: Math.min(selectionStart.value.x, selectionEnd.value.x),
+    top: Math.min(selectionStart.value.y, selectionEnd.value.y),
+    width: Math.abs(selectionEnd.value.x - selectionStart.value.x),
+    height: Math.abs(selectionEnd.value.y - selectionStart.value.y)
+  }
+}
+
+function updateSelectedNodes() {
+  if (!selectionRect.value) return
+  
   mindmapStore.nodes.value.forEach(node => {
-    if (isNodeInSelection(node, selectionRect.value)) {
+    const isInSelection = isNodeInSelection(node, selectionRect.value)
+    if (isInSelection) {
       mindmapStore.toggleNodeSelection(node.id)
     }
   })
 }
 
-function handleMouseUp() {
-  isSelecting.value = false
-  selectionRect.value = null
-}
-
+// 改进节点选择判断
 function isNodeInSelection(node, rect) {
-  return (
-    node.position.x >= rect.left &&
-    node.position.x + 120 <= rect.left + rect.width &&
-    node.position.y >= rect.top &&
-    node.position.y + 60 <= rect.top + rect.height
+  const NODE_WIDTH = 120
+  const NODE_HEIGHT = 40
+  
+  const nodeRect = {
+    left: node.position.x,
+    right: node.position.x + NODE_WIDTH,
+    top: node.position.y,
+    bottom: node.position.y + NODE_HEIGHT
+  }
+  
+  return !(
+    nodeRect.right < rect.left ||
+    nodeRect.left > rect.left + rect.width ||
+    nodeRect.bottom < rect.top ||
+    nodeRect.top > rect.top + rect.height
   )
 }
 
@@ -398,22 +427,17 @@ function addChildNode(parentId) {
   }
 
   try {
-    console.log('Adding child node to parent:', parentId)
-    
-    // 直接从 mindmapStore 获取父节点
     const parentNode = mindmapStore.getNode(parentId)
     if (!parentNode) {
       console.error('Parent node not found:', parentId)
       return
     }
-    
-    console.log('Found parent node:', parentNode)
 
-    // 在父节点右侧添加子节点
-    const childPosition = {
-      x: parentNode.position.x + 200,
-      y: parentNode.position.y
-    }
+    // 获取所有已存在的子节点
+    const siblings = mindmapStore.nodes.value.filter(n => n.parentId === parentId)
+    
+    // 计算新子节点的位置
+    const childPosition = calculateChildPosition(parentNode, siblings.length)
 
     // 添加子节点
     const newNodeId = mindmapStore.addNode({
@@ -427,10 +451,44 @@ function addChildNode(parentId) {
       }
     })
 
+    // 如果有多个子节点，自动调整它们的位置
+    if (siblings.length > 0) {
+      adjustSiblingsLayout(parentId)
+    }
+
     console.log('Successfully added child node:', newNodeId)
   } catch (error) {
     console.error('Failed to add child node:', error)
   }
+}
+
+// 计算子节点位置
+function calculateChildPosition(parentNode, siblingCount) {
+  const VERTICAL_SPACING = 80  // 垂直间距
+  const HORIZONTAL_SPACING = 200  // 水平间距
+  
+  return {
+    x: parentNode.position.x + HORIZONTAL_SPACING,
+    y: parentNode.position.y - (VERTICAL_SPACING * siblingCount) / 2 + (VERTICAL_SPACING * siblingCount)
+  }
+}
+
+// 调整同级节点布局
+function adjustSiblingsLayout(parentId) {
+  const siblings = mindmapStore.nodes.value.filter(n => n.parentId === parentId)
+  const parent = mindmapStore.getNode(parentId)
+  
+  if (!parent || siblings.length === 0) return
+  
+  const VERTICAL_SPACING = 80
+  const startY = parent.position.y - (VERTICAL_SPACING * (siblings.length - 1)) / 2
+  
+  siblings.forEach((sibling, index) => {
+    mindmapStore.moveNode(sibling.id, {
+      x: parent.position.x + 200,
+      y: startY + (VERTICAL_SPACING * index)
+    })
+  })
 }
 
 // 修改节点内容
@@ -612,7 +670,6 @@ function handleSearch() {
 }
 
 // 框选
-const selectionStart = ref(null)
 const isSelecting = ref(false)
 const selectionRect = ref(null)
 
@@ -765,6 +822,7 @@ function getConnectionPath(node) {
   background: rgba(64, 158, 255, 0.1);
   pointer-events: none;
   z-index: 1000;
+  transition: all 0.05s ease;
 }
 
 .search-box {
@@ -793,7 +851,13 @@ function getConnectionPath(node) {
 }
 
 .node.selected {
-  box-shadow: 0 0 0 2px #409eff;
+  box-shadow: 0 0 0 2px #409eff, 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 2;
+}
+
+.node.selected:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 2px #409eff, 0 6px 16px rgba(0, 0, 0, 0.2);
 }
 
 .node {

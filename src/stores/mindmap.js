@@ -150,19 +150,51 @@ export const useMindmapStore = defineStore('mindmap', () => {
     }
   }
 
+  // 在 mindmapStore 中添加碰撞检测相关方法
+  function checkCollision(node1, node2) {
+    const NODE_WIDTH = 120
+    const NODE_HEIGHT = 40
+    const BUFFER = 20  // 额外的缓冲区
+
+    return !(
+      node1.position.x + NODE_WIDTH + BUFFER < node2.position.x ||
+      node1.position.x > node2.position.x + NODE_WIDTH + BUFFER ||
+      node1.position.y + NODE_HEIGHT + BUFFER < node2.position.y ||
+      node1.position.y > node2.position.y + NODE_HEIGHT + BUFFER
+    )
+  }
+
+  // 修改 moveNode 方法
   function moveNode(id, position) {
     try {
       const node = ymap.get(id)
-      if (node) {
-        const updatedNode = {
-          ...node,
-          position: {
-            x: position.x || node.position.x,
-            y: position.y || node.position.y
+      if (!node) return
+
+      // 检查新位置是否会导致碰撞
+      const otherNodes = Array.from(ymap.values()).filter(n => n.id !== id)
+      const newNode = { ...node, position }
+      
+      let adjustedPosition = { ...position }
+      let hasCollision = false
+
+      do {
+        hasCollision = false
+        for (const otherNode of otherNodes) {
+          if (checkCollision({ ...newNode, position: adjustedPosition }, otherNode)) {
+            hasCollision = true
+            // 向下微调位置
+            adjustedPosition.y += 10
+            break
           }
         }
-        ymap.set(id, updatedNode)
+      } while (hasCollision)
+
+      // 使用调整后的位置
+      const updatedNode = {
+        ...node,
+        position: adjustedPosition
       }
+      ymap.set(id, updatedNode)
     } catch (error) {
       console.error('Error moving node:', error)
     }
