@@ -20,6 +20,12 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (id.includes('vue') || id.includes('pinia')) {
+              return 'vendor-vue'
+            }
+            if (id.includes('yjs') || id.includes('socket.io')) {
+              return 'vendor-sync'
+            }
             return 'vendor'
           }
         },
@@ -32,7 +38,11 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      'vue': 'vue/dist/vue.esm-bundler.js'
     }
+  },
+  optimizeDeps: {
+    include: ['vue', 'pinia', 'yjs', 'socket.io-client']
   }
 })

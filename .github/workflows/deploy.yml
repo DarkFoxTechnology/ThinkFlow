@@ -23,14 +23,17 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          rm -rf node_modules package-lock.json
           npm install
           npm install @vitejs/plugin-vue@4.5.2
           npm install vite@5.0.10
 
       - name: Build
         run: |
-          echo "VITE_BASE_URL=/ThinkFlow/" > .env
           npm run build
+        env:
+          VITE_BASE_URL: '/ThinkFlow/'
+          NODE_ENV: production
 
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
