@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { ydoc, ymap, provider } from '../utils/socket'
+import { ydoc, ymap } from '../utils/socket'
 import { UndoManager } from 'yjs'
 import { autoLayout, searchNodes } from '../utils/mindmap'
 
@@ -88,57 +88,54 @@ export const useMindmapStore = defineStore('mindmap', () => {
   // 修改 calculateChildPosition 函数
   function calculateChildPosition(parentNode, siblings) {
     const totalSiblings = siblings.length + 1
-    
-    // 计算父节点的中心点
-    const parentCenterX = parentNode.position.x + LAYOUT_CONFIG.NODE_WIDTH / 2
-    const parentCenterY = parentNode.position.y + LAYOUT_CONFIG.NODE_HEIGHT / 2
+    const SPACING = {
+      HORIZONTAL: 200,  // 水平间距
+      VERTICAL: 80     // 垂直间距
+    }
 
     // 新节点的 X 坐标（在父节点右侧固定距离）
-    const newX = parentNode.position.x + LAYOUT_CONFIG.HORIZONTAL_SPACING
+    const newX = parentNode.position.x + SPACING.HORIZONTAL
 
     // 计算 Y 坐标
     let newY
 
     if (totalSiblings === 1) {
-      // 如果是第一个子节点，与父节点在同一水平线上
-      newY = parentNode.position.y
+      // 第一个子节点在父节点正上方
+      newY = parentNode.position.y - SPACING.VERTICAL
+    } else if (siblings.length === 1) {
+      // 第二个子节点在父节点正下方
+      newY = parentNode.position.y + SPACING.VERTICAL
     } else {
-      // 计算子节点分布的总高度
-      const totalHeight = (totalSiblings - 1) * LAYOUT_CONFIG.VERTICAL_SPACING
+      // 其他节点在父节点水平位置附近均匀分布
+      const middleY = parentNode.position.y
+      const offset = SPACING.VERTICAL * 0.6 // 相对于中心点的偏移量
       
-      // 计算起始 Y 坐标（让子节点群居中对齐于父节点）
-      const startY = parentCenterY - totalHeight / 2
-      
-      // 重新排列现有的子节点
+      // 重新排列现有子节点
       siblings.forEach((sibling, index) => {
-        const siblingY = startY + (index * LAYOUT_CONFIG.VERTICAL_SPACING)
-        
-        // 只有当位置发生变化时才移动节点
-        if (sibling.position.y !== siblingY) {
-          moveNode(sibling.id, {
-            x: newX,  // 所有子节点都在同一垂直线上
-            y: siblingY
-          }, { skipRearrange: true })
+        let siblingY
+        if (index === 0) {
+          siblingY = middleY - SPACING.VERTICAL // 第一个节点在上方
+        } else if (index === siblings.length - 1) {
+          siblingY = middleY + SPACING.VERTICAL // 最后一个节点在下方
+        } else {
+          // 中间节点均匀分布
+          const progress = (index) / (siblings.length - 1)
+          siblingY = middleY - offset + (progress * offset * 2)
         }
+
+        moveNode(sibling.id, {
+          x: newX,
+          y: siblingY
+        }, { skipRearrange: true })
       })
 
-      // 新节点的 Y 坐标（在现有子节点下方）
-      newY = startY + (siblings.length * LAYOUT_CONFIG.VERTICAL_SPACING)
+      // 新节点放在最下方
+      newY = middleY + SPACING.VERTICAL
     }
-
-    // 计算连接线的控制点
-    const controlPoint1X = parentCenterX + LAYOUT_CONFIG.CURVE_OFFSET
-    const controlPoint2X = newX - LAYOUT_CONFIG.CURVE_OFFSET
 
     return {
       x: newX,
-      y: newY,
-      controlPoints: {
-        c1x: controlPoint1X,
-        c1y: parentCenterY,
-        c2x: controlPoint2X,
-        c2y: newY + LAYOUT_CONFIG.NODE_HEIGHT / 2
-      }
+      y: newY
     }
   }
 
@@ -372,6 +369,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
   }
 
   function clearSelection() {
+    selectedNodeId.value = null
     selectedNodes.value.clear()
   }
 
@@ -454,48 +452,33 @@ export const useMindmapStore = defineStore('mindmap', () => {
   // 添加协作者管理
   const collaborators = ref(new Set())
 
-  // 在 WebRTC provider 的 awareness 中监听变化
-  if (provider && provider.awareness) {
-    provider.awareness.on('change', () => {
-      const states = Array.from(provider.awareness.getStates().values())
-      collaborators.value = new Set(states.map(state => state.user?.name).filter(Boolean))
-    })
-
-    // 设置当前用户信息
-    provider.awareness.setLocalState({
-      user: {
-        name: `User-${Math.random().toString(36).substr(2, 5)}`,
-        color: `#${Math.floor(Math.random()*16777215).toString(16)}`
-      }
-    })
+  // Add current user info to local storage instead
+  const currentUser = {
+    name: `User-${Math.random().toString(36).substr(2, 5)}`,
+    color: `#${Math.floor(Math.random()*16777215).toString(16)}`
   }
+  localStorage.setItem('mindmap-user', JSON.stringify(currentUser))
 
-  // 在 calculateChildPosition 函数后添加
+  // 修改 addNode 函数中的位置计算部分
   function addNode(node) {
     try {
       console.log('Adding node:', node)
       
-      // 获取所有现有节点
-      const existingNodes = Array.from(ymap.values())
-      
-      // 检查初始位置是否有重叠
       let position = { ...node.position }
       
       if (node.parentId) {
-        // 如果是子节点，使用父节点相关的布局
         const parentNode = ymap.get(node.parentId)
         if (!parentNode) return null
 
         // 获取同级节点（不包括新节点）
-        const siblings = existingNodes
+        const siblings = Array.from(ymap.values())
           .filter(n => n.parentId === node.parentId)
           .sort((a, b) => a.position.y - b.position.y)
 
         // 计算新节点位置
         position = calculateChildPosition(parentNode, siblings)
       } else {
-        // 如果是根节点，使用右侧优先的布局
-        position = findAvailablePosition(position, existingNodes)
+        position = findAvailablePosition(position, Array.from(ymap.values()))
       }
 
       // 创建新节点
@@ -527,9 +510,20 @@ export const useMindmapStore = defineStore('mindmap', () => {
     }
   }
 
+  // Selection methods
+  function setSelectedNode(id) {
+    selectedNodeId.value = id
+    selectedNodes.value.clear()
+  }
+
   return {
+    isLoading,
     nodes,
     selectedNodeId,
+    selectedNodes,
+    setSelectedNode,
+    toggleNodeSelection,
+    clearSelection,
     visibleNodes,
     addNode,
     removeNode,
@@ -540,9 +534,6 @@ export const useMindmapStore = defineStore('mindmap', () => {
     undo,
     redo,
     getNodeDepth,
-    selectedNodes,
-    toggleNodeSelection,
-    clearSelection,
     batchDeleteNodes,
     batchMoveNodes,
     importNodes,

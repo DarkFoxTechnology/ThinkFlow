@@ -1,13 +1,19 @@
 import { io } from 'socket.io-client'
 import * as Y from 'yjs'
-import { WebrtcProvider } from 'y-webrtc'
 import { IndexeddbPersistence } from 'y-indexeddb'
 
-// 连接状态
+// Create Yjs document and shared data
+const ydoc = new Y.Doc()
+const ymap = ydoc.getMap('mindmap')
+
+// Create persistence provider for local storage
+const indexeddbProvider = new IndexeddbPersistence('mindmap-storage', ydoc)
+
+// Connection state
 let isConnecting = false
 let isConnected = false
 
-// 创建Socket.IO实例
+// Create Socket.IO instance for local development
 const socket = io('ws://localhost:5173', {
   autoConnect: false,
   reconnection: true,
@@ -16,12 +22,8 @@ const socket = io('ws://localhost:5173', {
   transports: ['websocket']
 })
 
-// 创建Yjs文档
-const ydoc = new Y.Doc()
-const ymap = ydoc.getMap('mindmap')
-
-// 连接函数
-const connect = () => {
+// Connect function
+function connect() {
   if (isConnected || isConnecting) return
   isConnecting = true
   
@@ -48,36 +50,31 @@ const connect = () => {
   })
 }
 
-// 获取连接状态
-const getConnectionStatus = () => ({
-  isConnected,
-  isConnecting
-})
+// Get connection status
+function getConnectionStatus() {
+  return {
+    isConnected,
+    isConnecting
+  }
+}
 
-// 持久化存储
-const persistence = new IndexeddbPersistence('mindmap', ydoc)
-
-// WebRTC提供者
-export const provider = new WebrtcProvider('mindmap-room', ydoc, {
-  signaling: ['ws://localhost:5173']
-})
-
-// 连接事件处理
+// Set up connection event handlers
 socket.on('connect', () => {
   console.log('Connected to server')
-  // 同步初始状态
   socket.emit('sync', ymap.toJSON())
 })
 
 socket.on('disconnect', () => {
   console.log('Disconnected from server')
+  isConnected = false
 })
 
 socket.on('connect_error', (err) => {
   console.error('Connection error:', err.message)
+  isConnected = false
 })
 
-// 监听Yjs文档变化
+// Observe Yjs document changes
 ymap.observe(event => {
   if (!event.transaction.local) return
   
@@ -88,12 +85,37 @@ ymap.observe(event => {
   }
 })
 
-// 监听服务器更新
+// Listen for server updates
 socket.on('update', ({ key, value }) => {
   Y.transact(ydoc, () => {
     ymap.set(key, value)
   })
 })
 
-// 导出Socket实例和Yjs文档
-export { socket, ydoc, ymap, connect, getConnectionStatus }
+// Handle sync events
+indexeddbProvider.on('synced', () => {
+  console.log('Content synced with IndexedDB')
+})
+
+// Handle errors
+indexeddbProvider.on('error', error => {
+  console.error('IndexedDB error:', error)
+})
+
+// Cleanup function
+function cleanup() {
+  socket.disconnect()
+  indexeddbProvider.destroy()
+  ydoc.destroy()
+}
+
+// Export everything as a single object
+export {
+  ydoc,
+  ymap,
+  socket,
+  indexeddbProvider,
+  connect,
+  getConnectionStatus,
+  cleanup
+}

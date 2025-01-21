@@ -442,7 +442,7 @@ async function exportAsPNG() {
   
   // 绘制节点
   nodes.forEach(node => {
-    const rect = node.getBoundingClientRect()
+    const rect = node.getBoundingClientRect
     const style = window.getComputedStyle(node)
     
     // 绘制节点样式
@@ -729,7 +729,7 @@ function alignNodes(type) {
   }
 }
 
-// 修改 calculateChildPosition 函数中的布局计算
+// 修改 calculateChildPosition 函数
 function calculateChildPosition(parentNode, siblings) {
   const totalSiblings = siblings.length + 1
   
@@ -744,30 +744,46 @@ function calculateChildPosition(parentNode, siblings) {
   let newY
 
   if (totalSiblings === 1) {
-    // 如果是第一个子节点，与父节点在同一水平线上
-    newY = parentNode.position.y
+    // 第一个子节点在父节点正上方
+    newY = parentNode.position.y - LAYOUT_CONFIG.VERTICAL_SPACING * 2
+  } else if (siblings.length === 0) {
+    // 如果是第二个子节点，放在父节点正下方
+    newY = parentNode.position.y + LAYOUT_CONFIG.VERTICAL_SPACING * 2
   } else {
-    // 计算子节点分布的总高度
-    const totalHeight = (totalSiblings - 1) * LAYOUT_CONFIG.VERTICAL_SPACING
-    
-    // 计算起始 Y 坐标（让子节点群居中对齐于父节点）
-    const startY = parentCenterY - totalHeight / 2
+    // 其他节点均匀分布在父节点右侧
+    // 计算中间区域的高度
+    const middleHeight = LAYOUT_CONFIG.VERTICAL_SPACING * (totalSiblings - 3) // 减去上下两个节点
     
     // 重新排列现有的子节点
     siblings.forEach((sibling, index) => {
-      const siblingY = startY + (index * LAYOUT_CONFIG.VERTICAL_SPACING)
-      
-      // 只有当位置发生变化时才移动节点
-      if (sibling.position.y !== siblingY) {
-        moveNode(sibling.id, {
-          x: newX,  // 所有子节点都在同一垂直线上
-          y: siblingY
-        }, { skipRearrange: true })
+      let siblingY
+      if (index === 0) {
+        // 第一个节点在上方
+        siblingY = parentNode.position.y - LAYOUT_CONFIG.VERTICAL_SPACING * 2
+      } else if (index === siblings.length - 1 && siblings.length > 1) {
+        // 最后一个节点在下方
+        siblingY = parentNode.position.y + LAYOUT_CONFIG.VERTICAL_SPACING * 2
+      } else {
+        // 中间节点均匀分布
+        const progress = (index) / (siblings.length - 1)
+        siblingY = parentCenterY - (middleHeight / 2) + (progress * middleHeight)
       }
+
+      // 移动节点
+      moveNode(sibling.id, {
+        x: newX,
+        y: siblingY
+      }, { skipRearrange: true })
     })
 
-    // 新节点的 Y 坐标（在现有子节点下方）
-    newY = startY + (siblings.length * LAYOUT_CONFIG.VERTICAL_SPACING)
+    // 新节点的位置
+    if (siblings.length === 1) {
+      // 第三个节点放在父节点水平位置
+      newY = parentCenterY
+    } else {
+      // 其他节点放在最下方
+      newY = parentNode.position.y + LAYOUT_CONFIG.VERTICAL_SPACING * 2
+    }
   }
 
   return {

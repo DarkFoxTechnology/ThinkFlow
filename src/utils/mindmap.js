@@ -1,127 +1,183 @@
 import FileSaver from 'file-saver'
 import { marked } from 'marked'
 
+// Constants for layout
+const LAYOUT_CONFIG = {
+  HORIZONTAL_SPACING: 200,
+  VERTICAL_SPACING: 60,
+  NODE_WIDTH: 120,
+  NODE_HEIGHT: 40
+}
+
 // 导出为 Markdown
 export function exportToMarkdown(nodes) {
-  let markdown = ''
+  if (!nodes.length) return ''
+
+  const nodeMap = new Map(nodes.map(node => [node.id, node]))
+  const rootNodes = nodes.filter(node => !node.parentId)
   
-  function buildMarkdown(nodeId, depth = 0) {
-    const node = nodes.find(n => n.id === nodeId)
-    if (!node) return
-    
-    // 添加缩进和标题
-    markdown += `${' '.repeat(depth * 2)}${'#'.repeat(depth + 1)} ${node.content}\n`
-    
-    // 递归处理子节点
-    const children = nodes.filter(n => n.parentId === node.id)
-    children.forEach(child => buildMarkdown(child.id, depth + 1))
+  function buildMarkdown(nodeId, level = 0) {
+    const node = nodeMap.get(nodeId)
+    if (!node) return ''
+
+    const indent = '  '.repeat(level)
+    const bullet = level === 0 ? '#' : '-'
+    let markdown = `${indent}${bullet} ${node.content}\n`
+
+    // Find and sort children
+    const children = nodes
+      .filter(n => n.parentId === nodeId)
+      .sort((a, b) => {
+        const aPos = a.position || { y: 0 }
+        const bPos = b.position || { y: 0 }
+        return aPos.y - bPos.y
+      })
+
+    // Recursively build markdown for children
+    children.forEach(child => {
+      markdown += buildMarkdown(child.id, level + 1)
+    })
+
+    return markdown
   }
-  
-  // 从根节点开始构建
-  const rootNode = nodes.find(n => !n.parentId)
-  if (rootNode) {
-    buildMarkdown(rootNode.id)
-  }
-  
-  return markdown
+
+  return rootNodes
+    .sort((a, b) => a.position.y - b.position.y)
+    .map(root => buildMarkdown(root.id))
+    .join('\n')
 }
 
 // 从 Markdown 导入
 export function importFromMarkdown(markdown) {
-  const tokens = marked.lexer(markdown)
+  const lines = markdown.split('\n').filter(line => line.trim())
   const nodes = []
-  let currentParentId = null
-  let lastDepth = 0
-  let parentStack = [null]
-  
-  tokens.forEach(token => {
-    if (token.type === 'heading') {
-      const depth = token.depth - 1
-      
-      // 调整父节点栈
-      if (depth > lastDepth) {
-        parentStack.push(currentParentId)
-      } else if (depth < lastDepth) {
-        for (let i = 0; i < lastDepth - depth; i++) {
-          parentStack.pop()
-        }
-      }
-      
-      const node = {
-        id: crypto.randomUUID(),
-        content: token.text,
-        parentId: parentStack[depth],
-        position: { x: depth * 200, y: nodes.length * 100 }
-      }
-      
-      nodes.push(node)
-      currentParentId = node.id
-      lastDepth = depth
+  const stack = []
+  let lastLevel = -1
+  let lastId = null
+
+  lines.forEach(line => {
+    const match = line.match(/^(\s*)([#-])\s+(.+)$/)
+    if (!match) return
+
+    const [, indent, bullet, content] = match
+    const level = bullet === '#' ? 0 : (indent.length / 2) + 1
+
+    // Pop stack until we find the parent
+    while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+      stack.pop()
     }
+
+    const node = {
+      id: generateId(),
+      content: content.trim(),
+      parentId: stack.length > 0 ? stack[stack.length - 1].id : null,
+      position: { x: 0, y: 0 },
+      style: {
+        backgroundColor: '#ffffff',
+        textColor: '#333333',
+        borderColor: '#ddd'
+      }
+    }
+
+    nodes.push(node)
+    stack.push({ id: node.id, level })
+    lastLevel = level
+    lastId = node.id
   })
-  
-  return nodes
+
+  // Apply auto-layout to the imported nodes
+  return autoLayout(nodes)
 }
 
 // 自动布局算法
 export function autoLayout(nodes) {
-  const HORIZONTAL_SPACING = 200
-  const VERTICAL_SPACING = 100
+  if (!nodes.length) return nodes
+
+  // Find root nodes (nodes without parents)
+  const rootNodes = nodes.filter(node => !node.parentId)
+  if (!rootNodes.length) return nodes
+
+  // Create a map for quick node lookup
+  const nodeMap = new Map(nodes.map(node => [node.id, { ...node }]))
   
-  function layoutNode(nodeId, level = 0, order = 0) {
-    const node = nodes.find(n => n.id === nodeId)
-    if (!node) return { width: 0, height: 0 }
-    
-    // 获取子节点
-    const children = nodes.filter(n => n.parentId === node.id)
-    let totalHeight = 0
-    let maxChildWidth = 0
-    
-    // 递归布局子节点
-    children.forEach((child, index) => {
-      const { width, height } = layoutNode(child.id, level + 1, index)
-      totalHeight += height + VERTICAL_SPACING
-      maxChildWidth = Math.max(maxChildWidth, width)
-    })
-    
-    // 计算节点位置
+  // Calculate levels for each node
+  rootNodes.forEach(root => {
+    calculateLevels(root.id, 0, nodeMap)
+  })
+
+  // Sort nodes by level and parent
+  const sortedNodes = Array.from(nodeMap.values()).sort((a, b) => {
+    if (a.level !== b.level) return a.level - b.level
+    if (a.parentId === b.parentId) return a.index - b.index
+    return 0
+  })
+
+  // Calculate positions
+  let currentLevel = 0
+  let currentY = 0
+  let maxHeight = 0
+
+  sortedNodes.forEach(node => {
+    if (node.level !== currentLevel) {
+      currentLevel = node.level
+      currentY = 0
+    }
+
+    const siblings = sortedNodes.filter(n => 
+      n.parentId === node.parentId && n.level === node.level
+    )
+    const totalHeight = siblings.length * LAYOUT_CONFIG.VERTICAL_SPACING
+    const startY = -totalHeight / 2
+
     node.position = {
-      x: level * HORIZONTAL_SPACING,
-      y: order * VERTICAL_SPACING
+      x: node.level * LAYOUT_CONFIG.HORIZONTAL_SPACING,
+      y: startY + (siblings.indexOf(node) * LAYOUT_CONFIG.VERTICAL_SPACING)
     }
-    
-    // 如果有子节点,调整它们的垂直位置
-    if (children.length > 0) {
-      const startY = node.position.y - totalHeight / 2
-      children.forEach((child, index) => {
-        const previousHeights = children
-          .slice(0, index)
-          .reduce((sum, n) => sum + VERTICAL_SPACING, 0)
-        child.position.y = startY + previousHeights
-      })
-    }
-    
-    return {
-      width: HORIZONTAL_SPACING + maxChildWidth,
-      height: Math.max(VERTICAL_SPACING, totalHeight)
-    }
-  }
-  
-  // 从根节点开始布局
-  const rootNode = nodes.find(n => !n.parentId)
-  if (rootNode) {
-    layoutNode(rootNode.id)
-  }
-  
-  return nodes
+
+    maxHeight = Math.max(maxHeight, Math.abs(node.position.y))
+  })
+
+  // Center the layout vertically
+  sortedNodes.forEach(node => {
+    node.position.y += maxHeight
+  })
+
+  return sortedNodes
+}
+
+function calculateLevels(nodeId, level, nodeMap, parentIndex = 0) {
+  const node = nodeMap.get(nodeId)
+  if (!node) return
+
+  node.level = level
+  node.index = parentIndex
+
+  // Find children
+  const children = Array.from(nodeMap.values())
+    .filter(n => n.parentId === nodeId)
+    .sort((a, b) => {
+      const aPos = a.position || { y: 0 }
+      const bPos = b.position || { y: 0 }
+      return aPos.y - bPos.y
+    })
+
+  // Calculate levels for children
+  children.forEach((child, index) => {
+    calculateLevels(child.id, level + 1, nodeMap, index)
+  })
 }
 
 // 搜索节点
 export function searchNodes(nodes, keyword) {
   if (!keyword) return []
   
-  const lowercaseKeyword = keyword.toLowerCase()
-  return nodes.filter(node => 
-    node.content.toLowerCase().includes(lowercaseKeyword)
-  )
+  const searchTerm = keyword.toLowerCase()
+  return nodes.filter(node => {
+    const content = node.content?.toLowerCase() || ''
+    return content.includes(searchTerm)
+  })
+}
+
+function generateId() {
+  return `node_${Math.random().toString(36).substr(2, 9)}`
 } 
