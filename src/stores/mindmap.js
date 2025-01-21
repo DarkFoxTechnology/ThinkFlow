@@ -101,7 +101,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
       const newNode = {
         id: uuidv4(),
         content: node.content || '新节点',
-        position: position,
+        position,
         parentId: node.parentId || null,
         style: node.style || {
           backgroundColor: '#ffffff',
@@ -119,7 +119,6 @@ export const useMindmapStore = defineStore('mindmap', () => {
       selectedNodeId.value = newNode.id
       updateNodes()
 
-      console.log('Node added successfully:', newNode)
       return newNode.id
     } catch (error) {
       console.error('Error adding node:', error)
@@ -127,7 +126,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
     }
   }
 
-  // 修改 calculateChildPosition 函数，统一使用 XMind 风格
+  // 修改 calculateChildPosition 函数
   function calculateChildPosition(parentNode, siblings) {
     const VERTICAL_SPACING = 60  // 垂直间距
     const HORIZONTAL_SPACING = 200  // 水平间距
@@ -135,27 +134,37 @@ export const useMindmapStore = defineStore('mindmap', () => {
     // 默认在父节点右侧
     let x = parentNode.position.x + HORIZONTAL_SPACING
     
-    // 计算总高度和起始位置
+    // 计算新节点的位置
     const totalNodes = siblings.length + 1  // 包括新节点
-    const totalHeight = VERTICAL_SPACING * (totalNodes - 1)  // 总高度
-    const startY = parentNode.position.y - totalHeight / 2  // 起始Y坐标
-    
+    let y = 0
+
+    // 如果是第一个子节点，直接放在父节点同一水平线上
+    if (siblings.length === 0) {
+      return {
+        x,
+        y: parentNode.position.y
+      }
+    }
+
     // 重新排列所有现有子节点
+    const totalHeight = (totalNodes - 1) * VERTICAL_SPACING
+    const startY = parentNode.position.y - totalHeight / 2
+
+    // 先移动现有节点
     siblings.forEach((sibling, index) => {
-      // 计算节点在整体布局中的位置
-      const position = index - Math.floor(totalNodes / 2)  // 相对于中心的偏移
-      const newY = parentNode.position.y + position * VERTICAL_SPACING
+      const newY = startY + index * VERTICAL_SPACING
       
+      // 移动现有节点
       moveNode(sibling.id, {
         x: sibling.position.x,
         y: newY
-      })
+      }, { skipRearrange: true })  // 使用 skipRearrange 避免触发碰撞检测
     })
-    
-    // 新节点的位置总是在最下方
+
+    // 新节点放在最下方
     return {
       x,
-      y: parentNode.position.y + Math.floor((totalNodes - 1) / 2) * VERTICAL_SPACING
+      y: startY + siblings.length * VERTICAL_SPACING
     }
   }
 
@@ -288,7 +297,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
     )
   }
 
-  // 修改 moveNode 方法，添加不触发重排的选项
+  // 修改 moveNode 方法
   function moveNode(id, position, { skipRearrange = false } = {}) {
     try {
       const node = ymap.get(id)
@@ -296,15 +305,11 @@ export const useMindmapStore = defineStore('mindmap', () => {
 
       // 如果是重排过程中的移动，跳过碰撞检测
       if (skipRearrange) {
-        const updatedNode = {
-          ...node,
-          position
-        }
-        ymap.set(id, updatedNode)
+        ymap.set(id, { ...node, position })
         return
       }
 
-      // 原有的碰撞检测逻辑
+      // 进行碰撞检测
       const otherNodes = Array.from(ymap.values()).filter(n => n.id !== id)
       let adjustedPosition = { ...position }
       let hasCollision = false
@@ -312,7 +317,11 @@ export const useMindmapStore = defineStore('mindmap', () => {
       do {
         hasCollision = false
         for (const otherNode of otherNodes) {
-          if (checkCollision({ ...node, position: adjustedPosition }, otherNode)) {
+          if (checkNodesCollision(
+            { position: adjustedPosition },
+            otherNode,
+            { width: 120, height: 40, buffer: 20 }
+          )) {
             hasCollision = true
             adjustedPosition.y += 10
             break
@@ -320,11 +329,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
         }
       } while (hasCollision)
 
-      const updatedNode = {
-        ...node,
-        position: adjustedPosition
-      }
-      ymap.set(id, updatedNode)
+      ymap.set(id, { ...node, position: adjustedPosition })
     } catch (error) {
       console.error('Error moving node:', error)
     }

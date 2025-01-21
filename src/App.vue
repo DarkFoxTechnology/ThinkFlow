@@ -72,7 +72,7 @@
         <svg class="connections">
           <g v-for="node in mindmapStore.visibleNodes" :key="`connection-${node.id}`">
             <template v-if="node.parentId">
-              <!-- 贝塞尔曲线连接线 -->
+              <!-- 连接线 -->
               <path
                 :d="getConnectionPath(node)"
                 stroke="#409eff"
@@ -82,7 +82,7 @@
               <!-- 箭头 -->
               <circle
                 :cx="node.position.x"
-                :cy="node.position.y + 15"
+                :cy="node.position.y + 20"
                 r="3"
                 fill="#409eff"
               />
@@ -122,265 +122,10 @@ import { useMindmapStore } from './stores/mindmap'
 import Node from './components/Node.vue'
 import { exportToMarkdown, importFromMarkdown } from './utils/mindmap'
 import FileSaver from 'file-saver'
+import { useKeyboard } from './composables/keyboard'
 
-// 虚拟列表相关
-const viewport = ref(null)
 const viewportWidth = ref(window.innerWidth)
 const viewportHeight = ref(window.innerHeight)
-const scrollTop = ref(0)
-const scrollLeft = ref(0)
-
-const visibleNodes = computed(() => {
-  const buffer = 200 // 预加载区域
-  return nodes.value.filter(node => {
-    return (
-      node.position.y + 100 >= scrollTop.value - buffer &&
-      node.position.y <= scrollTop.value + viewportHeight.value + buffer
-    )
-  })
-})
-
-// 处理滚动事件
-function handleScroll(event) {
-  if (viewport.value) {
-    scrollTop.value = viewport.value.scrollTop
-    scrollLeft.value = viewport.value.scrollLeft
-  }
-}
-
-// 处理窗口大小变化
-function handleResize() {
-  viewportWidth.value = window.innerWidth
-  viewportHeight.value = window.innerHeight
-}
-
-// 快捷键处理
-function handleKeydown(event) {
-  const { ctrlKey, shiftKey, altKey, key } = event
-  const mindmapStore = useMindmapStore()
-  
-  // 添加节点
-  if (key === 'Enter' && ctrlKey) {
-    event.preventDefault()
-    addNode()
-  }
-  
-  // 删除节点
-  if (key === 'Backspace' || key === 'Delete') {
-    event.preventDefault()
-    removeNode()
-  }
-  
-  // 撤销
-  if (key === 'z' && ctrlKey && !shiftKey) {
-    event.preventDefault()
-    undo()
-  }
-  
-  // 重做
-  if (key === 'z' && ctrlKey && shiftKey) {
-    event.preventDefault()
-    redo()
-  }
-
-  // 添加子节点
-  if (key === 'Enter' && ctrlKey && shiftKey) {
-    event.preventDefault()
-    const selectedId = mindmapStore.selectedNodeId
-    if (selectedId) {
-      addChildNode(selectedId)
-    }
-  }
-
-  // 切换选中节点
-  if (key === 'Tab' && !altKey) {
-    event.preventDefault()
-    const nodes = mindmapStore.nodes
-    const currentIndex = nodes.findIndex(n => n.id === mindmapStore.selectedNodeId)
-    if (currentIndex >= 0) {
-      const nextIndex = shiftKey ? 
-        (currentIndex - 1 + nodes.length) % nodes.length :
-        (currentIndex + 1) % nodes.length
-      mindmapStore.selectedNodeId = nodes[nextIndex].id
-    }
-  }
-
-  // 折叠/展开节点
-  if (key === 'ArrowLeft' && ctrlKey) {
-    event.preventDefault()
-    const selectedId = mindmapStore.selectedNodeId
-    if (selectedId) {
-      const node = mindmapStore.nodes.find(n => n.id === selectedId)
-      if (node) {
-        mindmapStore.updateNodeStyle(selectedId, {
-          ...node.style,
-          collapsed: true
-        })
-      }
-    }
-  }
-
-  if (key === 'ArrowRight' && ctrlKey) {
-    event.preventDefault()
-    const selectedId = mindmapStore.selectedNodeId
-    if (selectedId) {
-      const node = mindmapStore.nodes.find(n => n.id === selectedId)
-      if (node) {
-        mindmapStore.updateNodeStyle(selectedId, {
-          ...node.style,
-          collapsed: false
-        })
-      }
-    }
-  }
-
-  // 全选
-  if (event.key === 'a' && event.ctrlKey) {
-    event.preventDefault()
-    mindmapStore.nodes.value.forEach(node => {
-      mindmapStore.toggleNodeSelection(node.id)
-    })
-  }
-  
-  // 取消选择
-  if (event.key === 'Escape') {
-    mindmapStore.clearSelection()
-  }
-  
-  // 批量删除
-  if (
-    (event.key === 'Backspace' || event.key === 'Delete') &&
-    mindmapStore.selectedNodes.size > 0
-  ) {
-    event.preventDefault()
-    mindmapStore.batchDeleteNodes()
-  }
-  
-  // 批量移动
-  if (mindmapStore.selectedNodes.size > 0) {
-    const MOVE_STEP = 10
-    switch (event.key) {
-      case 'ArrowLeft':
-        event.preventDefault()
-        mindmapStore.batchMoveNodes(-MOVE_STEP, 0)
-        break
-      case 'ArrowRight':
-        event.preventDefault()
-        mindmapStore.batchMoveNodes(MOVE_STEP, 0)
-        break
-      case 'ArrowUp':
-        event.preventDefault()
-        mindmapStore.batchMoveNodes(0, -MOVE_STEP)
-        break
-      case 'ArrowDown':
-        event.preventDefault()
-        mindmapStore.batchMoveNodes(0, MOVE_STEP)
-        break
-    }
-  }
-}
-
-// 在 App.vue 中添加框选相关的状态和方法
-const selectionStart = ref(null)
-const selectionEnd = ref(null)
-const selectedNodes = ref(new Set())
-
-// 修改鼠标事件处理
-function handleMouseDown(event) {
-  // 只在点击背景时启动框选
-  if (event.target === viewport.value || event.target.classList.contains('mindmap')) {
-    selectionStart.value = {
-      x: event.clientX + viewport.value.scrollLeft,
-      y: event.clientY + viewport.value.scrollTop
-    }
-    selectionEnd.value = { ...selectionStart.value }
-    isSelecting.value = true
-    
-    // 设置样式防止文本选择
-    document.body.style.userSelect = 'none'
-    document.body.style.cursor = 'crosshair'
-    
-    // 如果没有按住 Shift，清除现有选择
-    if (!event.shiftKey) {
-      mindmapStore.clearSelection()
-    }
-  }
-}
-
-function handleMouseMove(event) {
-  if (!isSelecting.value) return
-  
-  selectionEnd.value = {
-    x: event.clientX + viewport.value.scrollLeft,
-    y: event.clientY + viewport.value.scrollTop
-  }
-  
-  updateSelectionRect()
-  updateSelectedNodes()
-}
-
-function updateSelectionRect() {
-  if (!selectionStart.value || !selectionEnd.value) return
-  
-  selectionRect.value = {
-    left: Math.min(selectionStart.value.x, selectionEnd.value.x),
-    top: Math.min(selectionStart.value.y, selectionEnd.value.y),
-    width: Math.abs(selectionEnd.value.x - selectionStart.value.x),
-    height: Math.abs(selectionEnd.value.y - selectionStart.value.y)
-  }
-}
-
-function updateSelectedNodes() {
-  if (!selectionRect.value) return
-  
-  mindmapStore.nodes.value.forEach(node => {
-    const isInSelection = isNodeInSelection(node, selectionRect.value)
-    if (isInSelection) {
-      mindmapStore.toggleNodeSelection(node.id)
-    }
-  })
-}
-
-// 改进节点选择判断
-function isNodeInSelection(node, rect) {
-  const NODE_WIDTH = 120
-  const NODE_HEIGHT = 40
-  
-  const nodeRect = {
-    left: node.position.x,
-    right: node.position.x + NODE_WIDTH,
-    top: node.position.y,
-    bottom: node.position.y + NODE_HEIGHT
-  }
-  
-  return !(
-    nodeRect.right < rect.left ||
-    nodeRect.left > rect.left + rect.width ||
-    nodeRect.bottom < rect.top ||
-    nodeRect.top > rect.top + rect.height
-  )
-}
-
-// 生命周期钩子
-onMounted(() => {
-  // 使用 addEventListener 添加事件监听器
-  viewport.value?.addEventListener('scroll', handleScroll)
-  window.addEventListener('resize', handleResize)
-  window.addEventListener('keydown', handleKeydown)
-  viewport.value?.addEventListener('mousedown', handleMouseDown)
-  window.addEventListener('mousemove', handleMouseMove)
-  window.addEventListener('mouseup', handleMouseUp)
-})
-
-onUnmounted(() => {
-  // 移除所有事件监听器
-  viewport.value?.removeEventListener('scroll', handleScroll)
-  window.removeEventListener('resize', handleResize)
-  window.removeEventListener('keydown', handleKeydown)
-  viewport.value?.removeEventListener('mousedown', handleMouseDown)
-  window.removeEventListener('mousemove', handleMouseMove)
-  window.removeEventListener('mouseup', handleMouseUp)
-})
 
 const mindmapStore = useMindmapStore()
 const nodes = computed(() => mindmapStore.nodes)
@@ -395,6 +140,14 @@ const node = ref({
   position: { x: 0, y: 0 }
 })
 
+const { handleKeydown } = useKeyboard({
+  mindmapStore,
+  addNode,
+  removeNode,
+  undo,
+  redo
+})
+
 // 添加获取父节点位置的方法
 function getParentPosition(node) {
   if (!node.parentId) return { x: 0, y: 0 }
@@ -405,30 +158,21 @@ function getParentPosition(node) {
 // 修改 addNode 方法
 function addNode() {
   console.log('Adding new node')
-  
   try {
-    // 计算初始位置 - 在视口中心
-    let position = {
-      x: viewport.value.scrollLeft + viewport.value.clientWidth / 2 - 60,
-      y: viewport.value.scrollTop + viewport.value.clientHeight / 2 - 30
+    // 计算新节点的初始位置 - 在视口中心
+    const position = {
+      x: (window.innerWidth / 2 - canvasPosition.value.x) / scale.value,
+      y: (window.innerHeight / 2 - canvasPosition.value.y) / scale.value
     }
-    
-    // 获取所有现有节点
-    const existingNodes = mindmapStore.nodes?.value || []
-    
-    // 使用螺旋布局来寻找可用位置
-    position = findAvailablePosition(position, existingNodes)
 
     const newNodeId = mindmapStore.addNode({
       content: '新节点',
-      position,
-      style: {
-        backgroundColor: '#ffffff',
-        textColor: '#333333',
-        borderColor: '#ddd'
-      }
+      position
     })
-    console.log('New node added:', newNodeId)
+
+    if (newNodeId) {
+      mindmapStore.selectedNodeId = newNodeId
+    }
   } catch (error) {
     console.error('Failed to add node:', error)
   }
@@ -775,24 +519,27 @@ function handleMouseUp(event) {
   document.body.style.cursor = ''
 }
 
-// 计算连接线路径
+// 修改连接线路径计算函数
 function getConnectionPath(node) {
   const parent = mindmapStore.getNode(node.parentId)
   if (!parent) return ''
 
-  const startX = parent.position.x + 120 // 父节点右边
-  const startY = parent.position.y + 15  // 父节点中间
-  const endX = node.position.x          // 子节点左边
-  const endY = node.position.y + 15     // 子节点中间
+  // 计算连接点坐标
+  const startX = parent.position.x + 120  // 父节点右边缘
+  const startY = parent.position.y + 20   // 父节点垂直中心
+  const endX = node.position.x            // 子节点左边缘
+  const endY = node.position.y + 20       // 子节点垂直中心
+
+  // 控制点的水平偏移量
+  const offset = (endX - startX) * 0.4
   
-  // 控制点
-  const controlX1 = startX + (endX - startX) * 0.4
-  const controlX2 = startX + (endX - startX) * 0.6
-  
-  return `M ${startX} ${startY} 
-          C ${controlX1} ${startY} 
-            ${controlX2} ${endY} 
-            ${endX} ${endY}`
+  // 使用三次贝塞尔曲线创建平滑的连接线
+  return `
+    M ${startX} ${startY}
+    C ${startX + offset} ${startY}
+      ${endX - offset} ${endY}
+      ${endX} ${endY}
+  `
 }
 
 // Canvas position and zoom
@@ -876,11 +623,8 @@ function handleZoom(event) {
 
 // Center canvas on mount
 onMounted(() => {
-  // 移除旧的事件监听
-  window.removeEventListener('keydown', handleKeydown)
-  
-  // 添加新的事件监听
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('resize', handleResize)
   
   // 初始化画布位置到中心
   const container = document.querySelector('.mindmap')
@@ -890,6 +634,18 @@ onMounted(() => {
       y: container.clientHeight / 2
     }
   }
+})
+
+// 修改 handleResize 函数
+function handleResize() {
+  viewportWidth.value = window.innerWidth
+  viewportHeight.value = window.innerHeight
+}
+
+// 在 onUnmounted 中清理事件监听
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -988,6 +744,15 @@ onMounted(() => {
   z-index: 0;
 }
 
+.connections path {
+  transition: all 0.3s ease;
+  stroke-linecap: round;
+}
+
+.connections circle {
+  transition: all 0.3s ease;
+}
+
 .nodes-container {
   position: relative;
   pointer-events: none;
@@ -1023,14 +788,6 @@ onMounted(() => {
 .search-box span {
   font-size: 12px;
   color: #666;
-}
-
-.connections path {
-  transition: all 0.3s ease;
-}
-
-.connections circle {
-  transition: all 0.3s ease;
 }
 
 .node.selected {
