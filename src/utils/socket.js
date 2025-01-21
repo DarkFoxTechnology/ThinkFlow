@@ -58,7 +58,7 @@ const getConnectionStatus = () => ({
 const persistence = new IndexeddbPersistence('mindmap', ydoc)
 
 // WebRTC提供者
-const provider = new WebrtcProvider('mindmap-room', ydoc, {
+export const provider = new WebrtcProvider('mindmap-room', ydoc, {
   signaling: ['ws://localhost:5173']
 })
 

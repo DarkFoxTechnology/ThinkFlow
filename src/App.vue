@@ -340,7 +340,7 @@ const nodes = computed(() => mindmapStore.nodes)
 const canUndo = computed(() => mindmapStore.canUndo)
 const canRedo = computed(() => mindmapStore.canRedo)
 const isSaving = ref(false)
-const collaboratorsCount = ref(0)
+const collaboratorsCount = computed(() => mindmapStore.collaborators.size)
 const node = ref({
   id: '',
   parentId: null,
@@ -584,11 +584,6 @@ watch(() => nodes.value, () => {
     isSaving.value = false
   }, 1000)
 }, { deep: true })
-
-// 模拟协作用户数
-setInterval(() => {
-  collaboratorsCount.value = Math.floor(Math.random() * 10) + 1
-}, 5000)
 
 // 导出 Markdown
 function exportMarkdown() {
