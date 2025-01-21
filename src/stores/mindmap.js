@@ -310,6 +310,23 @@ export const useMindmapStore = defineStore('mindmap', () => {
     }
   }
 
+  // 添加协作者管理
+  const collaborators = ref(new Set())
+
+  // 在 WebRTC provider 的 awareness 中监听变化
+  provider.awareness.on('change', () => {
+    const states = Array.from(provider.awareness.getStates().values())
+    collaborators.value = new Set(states.map(state => state.user?.name).filter(Boolean))
+  })
+
+  // 设置当前用户信息
+  provider.awareness.setLocalState({
+    user: {
+      name: `User-${Math.random().toString(36).substr(2, 5)}`,
+      color: `#${Math.floor(Math.random()*16777215).toString(16)}`
+    }
+  })
+
   return {
     nodes,
     selectedNodeId,
@@ -333,6 +350,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
     applyAutoLayout,
     searchResults,
     searchKeyword,
-    updateSearch
+    updateSearch,
+    collaborators
   }
 })

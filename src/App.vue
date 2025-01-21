@@ -56,17 +56,24 @@
     
     <div class="mindmap">
       <svg class="connections">
-        <line
-          v-for="node in mindmapStore.visibleNodes"
-          v-if="node.parentId"
-          :key="`line-${node.id}`"
-          :x1="getParentPosition(node).x + 60"
-          :y1="getParentPosition(node).y + 15"
-          :x2="node.position.x"
-          :y2="node.position.y + 15"
-          stroke="#ddd"
-          stroke-width="2"
-        />
+        <g v-for="node in mindmapStore.visibleNodes" :key="`connection-${node.id}`">
+          <template v-if="node.parentId">
+            <!-- 贝塞尔曲线连接线 -->
+            <path
+              :d="getConnectionPath(node)"
+              stroke="#409eff"
+              stroke-width="2"
+              fill="none"
+            />
+            <!-- 箭头 -->
+            <circle
+              :cx="node.position.x"
+              :cy="node.position.y + 15"
+              r="3"
+              fill="#409eff"
+            />
+          </template>
+        </g>
       </svg>
       
       <div class="viewport" ref="viewport">
@@ -81,6 +88,16 @@
           />
         </div>
       </div>
+      <div 
+        v-if="isSelecting" 
+        class="selection-rect"
+        :style="{
+          left: `${selectionRect.left}px`,
+          top: `${selectionRect.top}px`,
+          width: `${selectionRect.width}px`,
+          height: `${selectionRect.height}px`
+        }"
+      ></div>
     </div>
   </div>
 </template>
@@ -444,74 +461,101 @@ function redo() {
   mindmapStore.redo()
 }
 
-function exportAsPNG() {
-  const mindmapElement = document.querySelector('.mindmap')
-  const svgElement = document.querySelector('.connections')
+async function exportAsPNG() {
+  // 获取所有可见节点的边界
+  const nodes = document.querySelectorAll('.node')
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  
+  nodes.forEach(node => {
+    const rect = node.getBoundingClientRect()
+    minX = Math.min(minX, rect.left)
+    minY = Math.min(minY, rect.top)
+    maxX = Math.max(maxX, rect.right)
+    maxY = Math.max(maxY, rect.bottom)
+  })
+  
+  // 添加边距
+  const padding = 50
+  minX -= padding
+  minY -= padding
+  maxX += padding
+  maxY += padding
+  
+  const width = maxX - minX
+  const height = maxY - minY
   
   // 创建canvas
   const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
   const ctx = canvas.getContext('2d')
   
-  // 设置canvas尺寸
-  canvas.width = mindmapElement.scrollWidth
-  canvas.height = mindmapElement.scrollHeight
-  
-  // 绘制背景
+  // 设置白色背景
   ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillRect(0, 0, width, height)
   
-  // 绘制SVG
+  // 平移坐标系统以适应所有节点
+  ctx.translate(-minX, -minY)
+  
+  // 绘制连接线
+  const svgElement = document.querySelector('.connections')
   const svgData = new XMLSerializer().serializeToString(svgElement)
   const img = new Image()
   img.src = 'data:image/svg+xml;base64,' + btoa(svgData)
   
-  img.onload = () => {
-    ctx.drawImage(img, 0, 0)
+  await new Promise(resolve => {
+    img.onload = resolve
+  })
+  
+  ctx.drawImage(img, 0, 0)
+  
+  // 绘制节点
+  nodes.forEach(node => {
+    const rect = node.getBoundingClientRect()
+    const style = window.getComputedStyle(node)
     
-    // 绘制节点
-    const nodes = document.querySelectorAll('.node')
-    nodes.forEach(node => {
-      const rect = node.getBoundingClientRect()
-      const style = window.getComputedStyle(node)
-      
-      // 绘制节点背景
-      ctx.fillStyle = style.backgroundColor
-      ctx.fillRect(
-        rect.left,
-        rect.top,
-        rect.width,
-        rect.height
-      )
-      
-      // 绘制节点边框
-      ctx.strokeStyle = style.borderColor
-      ctx.lineWidth = 1
-      ctx.strokeRect(
-        rect.left,
-        rect.top,
-        rect.width,
-        rect.height
-      )
-      
-      // 绘制节点文字
-      const input = node.querySelector('input')
-      if (input) {
-        ctx.fillStyle = style.color
-        ctx.font = '14px Arial'
-        ctx.fillText(
-          input.value,
-          rect.left + 8,
-          rect.top + 20
-        )
-      }
-    })
+    // 绘制节点样式
+    ctx.save()
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.1)'
+    ctx.shadowBlur = 8
+    ctx.shadowOffsetY = 2
     
-    // 导出图片
-    const link = document.createElement('a')
-    link.download = 'mindmap.png'
-    link.href = canvas.toDataURL('image/png')
-    link.click()
-  }
+    ctx.fillStyle = style.backgroundColor
+    ctx.strokeStyle = style.borderColor
+    ctx.lineWidth = 1
+    
+    // 绘制圆角矩形
+    const radius = 4
+    ctx.beginPath()
+    ctx.moveTo(rect.left + radius, rect.top)
+    ctx.lineTo(rect.right - radius, rect.top)
+    ctx.quadraticCurveTo(rect.right, rect.top, rect.right, rect.top + radius)
+    ctx.lineTo(rect.right, rect.bottom - radius)
+    ctx.quadraticCurveTo(rect.right, rect.bottom, rect.right - radius, rect.bottom)
+    ctx.lineTo(rect.left + radius, rect.bottom)
+    ctx.quadraticCurveTo(rect.left, rect.bottom, rect.left, rect.bottom - radius)
+    ctx.lineTo(rect.left, rect.top + radius)
+    ctx.quadraticCurveTo(rect.left, rect.top, rect.left + radius, rect.top)
+    ctx.closePath()
+    
+    ctx.fill()
+    ctx.stroke()
+    ctx.restore()
+    
+    // 绘制文本
+    const input = node.querySelector('input')
+    if (input) {
+      ctx.fillStyle = style.color
+      ctx.font = style.font
+      ctx.fillText(input.value, rect.left + 8, rect.top + 20)
+    }
+  })
+  
+  // 导出图片
+  const link = document.createElement('a')
+  link.download = 'mindmap.png'
+  link.href = canvas.toDataURL('image/png')
+  link.click()
 }
 
 function exportAsJSON() {
@@ -595,6 +639,26 @@ watch(() => mindmapStore.nodes.value, (nodes) => {
     })
   }
 }, { immediate: true })  // immediate: true 确保立即执行一次
+
+// 计算连接线路径
+function getConnectionPath(node) {
+  const parent = mindmapStore.getNode(node.parentId)
+  if (!parent) return ''
+
+  const startX = parent.position.x + 120 // 父节点右边
+  const startY = parent.position.y + 15  // 父节点中间
+  const endX = node.position.x          // 子节点左边
+  const endY = node.position.y + 15     // 子节点中间
+  
+  // 控制点
+  const controlX1 = startX + (endX - startX) * 0.4
+  const controlX2 = startX + (endX - startX) * 0.6
+  
+  return `M ${startX} ${startY} 
+          C ${controlX1} ${startY} 
+            ${controlX2} ${endY} 
+            ${endX} ${endY}`
+}
 </script>
 
 <style>
@@ -603,12 +667,14 @@ watch(() => mindmapStore.nodes.value, (nodes) => {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
 }
 
 .toolbar {
   padding: 10px;
-  background: #f5f5f5;
-  border-bottom: 1px solid #ddd;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -643,17 +709,20 @@ watch(() => mindmapStore.nodes.value, (nodes) => {
 }
 
 .toolbar-button {
-  padding: 6px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
   background: white;
-  cursor: pointer;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  color: #409eff;
+  font-weight: 500;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   transition: all 0.2s ease;
 }
 
 .toolbar-button:hover:not(:disabled) {
-  background: #f5f5f5;
-  border-color: #ccc;
+  background: #409eff;
+  color: white;
+  transform: translateY(-1px);
 }
 
 .toolbar-button:disabled {
@@ -697,9 +766,10 @@ watch(() => mindmapStore.nodes.value, (nodes) => {
 
 .selection-rect {
   position: absolute;
-  border: 1px solid #409eff;
+  border: 2px solid #409eff;
   background: rgba(64, 158, 255, 0.1);
   pointer-events: none;
+  z-index: 1000;
 }
 
 .search-box {
@@ -717,5 +787,27 @@ watch(() => mindmapStore.nodes.value, (nodes) => {
 .search-box span {
   font-size: 12px;
   color: #666;
+}
+
+.connections path {
+  transition: all 0.3s ease;
+}
+
+.connections circle {
+  transition: all 0.3s ease;
+}
+
+.node.selected {
+  box-shadow: 0 0 0 2px #409eff;
+}
+
+.node {
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.node:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 </style>
