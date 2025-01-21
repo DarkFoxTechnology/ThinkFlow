@@ -80,13 +80,28 @@ export const useMindmapStore = defineStore('mindmap', () => {
   function addNode(node) {
     try {
       console.log('Adding node:', node)
+      
+      // 获取所有现有节点
+      const existingNodes = Array.from(ymap.values())
+      
+      // 检查初始位置是否有重叠
+      let position = { ...node.position }
+      
+      if (node.parentId) {
+        // 如果是子节点，使用父节点相关的布局
+        const parentNode = ymap.get(node.parentId)
+        const siblings = existingNodes.filter(n => n.parentId === node.parentId)
+        position = calculateChildPosition(parentNode, siblings)
+      } else {
+        // 如果是根节点，使用右侧优先的布局
+        position = findAvailablePosition(position, existingNodes)
+      }
+
+      // 创建新节点
       const newNode = {
         id: uuidv4(),
         content: node.content || '新节点',
-        position: {
-          x: node.position?.x || 0,
-          y: node.position?.y || 0
-        },
+        position: position,
         parentId: node.parentId || null,
         style: node.style || {
           backgroundColor: '#ffffff',
@@ -102,8 +117,6 @@ export const useMindmapStore = defineStore('mindmap', () => {
 
       // 更新选中状态
       selectedNodeId.value = newNode.id
-
-      // 立即更新节点数据
       updateNodes()
 
       console.log('Node added successfully:', newNode)
@@ -112,6 +125,155 @@ export const useMindmapStore = defineStore('mindmap', () => {
       console.error('Error adding node:', error)
       return null
     }
+  }
+
+  // 修改 calculateChildPosition 函数
+  function calculateChildPosition(parentNode, siblings) {
+    const VERTICAL_SPACING = 60  // 垂直间距
+    const HORIZONTAL_SPACING = 200  // 水平间距
+    
+    // 默认在父节点右侧
+    let x = parentNode.position.x + HORIZONTAL_SPACING
+    let y = parentNode.position.y
+    
+    // 根据兄弟节点数量决定布局
+    const siblingCount = siblings.length
+    
+    if (siblingCount === 0) {
+      // 第一个子节点，放在父节点同一水平线上
+      return { x, y }
+    } else if (siblingCount === 1) {
+      // 第二个子节点，将现有节点向上移，新节点向下放置，保持对称
+      const firstSibling = siblings[0]
+      
+      // 更新第一个子节点的位置（向上移动）
+      moveNode(firstSibling.id, {
+        x: firstSibling.position.x,
+        y: parentNode.position.y - VERTICAL_SPACING
+      })
+      
+      // 新节点放在下方
+      return {
+        x,
+        y: parentNode.position.y + VERTICAL_SPACING
+      }
+    } else {
+      // 第三个及以后的子节点
+      const middleIndex = Math.floor(siblingCount / 2)
+      
+      // 重新排列所有现有子节点
+      siblings.forEach((sibling, index) => {
+        let newY
+        
+        if (siblingCount % 2 === 0) {
+          // 偶数个节点
+          const offset = index - (siblingCount - 1) / 2
+          newY = parentNode.position.y + offset * VERTICAL_SPACING
+        } else {
+          // 奇数个节点
+          if (index === middleIndex) {
+            // 中间节点与父节点对齐
+            newY = parentNode.position.y
+          } else if (index < middleIndex) {
+            // 上半部分节点
+            newY = parentNode.position.y - (middleIndex - index) * VERTICAL_SPACING
+          } else {
+            // 下半部分节点
+            newY = parentNode.position.y + (index - middleIndex) * VERTICAL_SPACING
+          }
+        }
+        
+        moveNode(sibling.id, {
+          x: sibling.position.x,
+          y: newY
+        })
+      })
+      
+      // 新节点的位置
+      return {
+        x,
+        y: parentNode.position.y + (Math.ceil(siblingCount / 2)) * VERTICAL_SPACING
+      }
+    }
+  }
+
+  // 寻找可用位置（用于根节点）
+  function findAvailablePosition(startPosition, existingNodes) {
+    const VERTICAL_SPACING = 60
+    const HORIZONTAL_SPACING = 200
+    const DIRECTIONS = [
+      { x: 1, y: 0 },   // 右
+      { x: 0, y: 1 },   // 下
+      { x: -1, y: 0 },  // 左
+      { x: 0, y: -1 }   // 上
+    ]
+    
+    let position = { ...startPosition }
+    let currentDirection = 0
+    let attempts = 0
+    const MAX_ATTEMPTS = 100
+    
+    while (attempts < MAX_ATTEMPTS) {
+      let hasCollision = false
+      
+      // 检查当前位置是否有碰撞
+      for (const node of existingNodes) {
+        if (checkNodesCollision(
+          { position },
+          node,
+          { width: 120, height: 40, buffer: 20 }
+        )) {
+          hasCollision = true
+          break
+        }
+      }
+      
+      if (!hasCollision) {
+        return position
+      }
+      
+      // 按照右、下、左、上的顺序尝试新位置
+      const direction = DIRECTIONS[currentDirection]
+      position = {
+        x: position.x + direction.x * HORIZONTAL_SPACING,
+        y: position.y + direction.y * VERTICAL_SPACING
+      }
+      
+      // 每尝试4次换一个方向
+      if (attempts % 4 === 3) {
+        currentDirection = (currentDirection + 1) % DIRECTIONS.length
+      }
+      
+      attempts++
+    }
+    
+    return position
+  }
+
+  // 添加节点碰撞检测函数
+  function checkNodesCollision(node1, node2, dimensions) {
+    const { width, height, buffer } = dimensions
+    
+    const rect1 = {
+      left: node1.position.x - buffer,
+      right: node1.position.x + width + buffer,
+      top: node1.position.y - buffer,
+      bottom: node1.position.y + height + buffer
+    }
+    
+    const rect2 = {
+      left: node2.position.x,
+      right: node2.position.x + width,
+      top: node2.position.y,
+      bottom: node2.position.y + height
+    }
+    
+    return !(
+      rect1.right < rect2.left ||
+      rect1.left > rect2.right ||
+      rect1.bottom < rect2.top ||
+      rect1.top > rect2.bottom
+    )
   }
 
   // 修改 removeNode 方法
@@ -164,32 +326,38 @@ export const useMindmapStore = defineStore('mindmap', () => {
     )
   }
 
-  // 修改 moveNode 方法
-  function moveNode(id, position) {
+  // 修改 moveNode 方法，添加不触发重排的选项
+  function moveNode(id, position, { skipRearrange = false } = {}) {
     try {
       const node = ymap.get(id)
       if (!node) return
 
-      // 检查新位置是否会导致碰撞
+      // 如果是重排过程中的移动，跳过碰撞检测
+      if (skipRearrange) {
+        const updatedNode = {
+          ...node,
+          position
+        }
+        ymap.set(id, updatedNode)
+        return
+      }
+
+      // 原有的碰撞检测逻辑
       const otherNodes = Array.from(ymap.values()).filter(n => n.id !== id)
-      const newNode = { ...node, position }
-      
       let adjustedPosition = { ...position }
       let hasCollision = false
 
       do {
         hasCollision = false
         for (const otherNode of otherNodes) {
-          if (checkCollision({ ...newNode, position: adjustedPosition }, otherNode)) {
+          if (checkCollision({ ...node, position: adjustedPosition }, otherNode)) {
             hasCollision = true
-            // 向下微调位置
             adjustedPosition.y += 10
             break
           }
         }
       } while (hasCollision)
 
-      // 使用调整后的位置
       const updatedNode = {
         ...node,
         position: adjustedPosition
