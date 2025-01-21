@@ -127,7 +127,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
     }
   }
 
-  // 修改 calculateChildPosition 函数
+  // 修改 calculateChildPosition 函数，统一使用 XMind 风格
   function calculateChildPosition(parentNode, siblings) {
     const VERTICAL_SPACING = 60  // 垂直间距
     const HORIZONTAL_SPACING = 200  // 水平间距
@@ -135,60 +135,27 @@ export const useMindmapStore = defineStore('mindmap', () => {
     // 默认在父节点右侧
     let x = parentNode.position.x + HORIZONTAL_SPACING
     
-    // 根据兄弟节点数量决定布局
-    const siblingCount = siblings.length
+    // 计算总高度和起始位置
+    const totalNodes = siblings.length + 1  // 包括新节点
+    const totalHeight = VERTICAL_SPACING * (totalNodes - 1)  // 总高度
+    const startY = parentNode.position.y - totalHeight / 2  // 起始Y坐标
     
-    if (siblingCount === 0) {
-      // 第一个子节点，放在父节点同一水平线上
-      return { 
-        x,
-        y: parentNode.position.y 
-      }
-    } else if (siblingCount === 1) {
-      // 第二个子节点，将现有节点向上移，新节点向下放置，保持对称
-      const firstSibling = siblings[0]
+    // 重新排列所有现有子节点
+    siblings.forEach((sibling, index) => {
+      // 计算节点在整体布局中的位置
+      const position = index - Math.floor(totalNodes / 2)  // 相对于中心的偏移
+      const newY = parentNode.position.y + position * VERTICAL_SPACING
       
-      // 更新第一个子节点的位置（向上移动）
-      moveNode(firstSibling.id, {
-        x: firstSibling.position.x,
-        y: parentNode.position.y - VERTICAL_SPACING
+      moveNode(sibling.id, {
+        x: sibling.position.x,
+        y: newY
       })
-      
-      // 新节点放在下方
-      return {
-        x,
-        y: parentNode.position.y + VERTICAL_SPACING
-      }
-    } else {
-      // 三个及以上节点的处理
-      // 重新排列所有现有子节点，确保第二个节点在中间
-      const totalHeight = (siblingCount + 1) * VERTICAL_SPACING
-      const startY = parentNode.position.y - totalHeight / 2
-      
-      // 先移动现有节点
-      siblings.forEach((sibling, index) => {
-        if (index === 1) {
-          // 第二个节点始终在父节点水平线上
-          moveNode(sibling.id, {
-            x: sibling.position.x,
-            y: parentNode.position.y
-          })
-        } else {
-          // 其他节点均匀分布在上下两侧
-          const isUpper = index === 0
-          const position = isUpper ? index : index + 1
-          moveNode(sibling.id, {
-            x: sibling.position.x,
-            y: startY + position * VERTICAL_SPACING
-          })
-        }
-      })
-      
-      // 新节点的位置
-      return {
-        x,
-        y: startY + (siblingCount + 1) * VERTICAL_SPACING
-      }
+    })
+    
+    // 新节点的位置总是在最下方
+    return {
+      x,
+      y: parentNode.position.y + Math.floor((totalNodes - 1) / 2) * VERTICAL_SPACING
     }
   }
 

@@ -54,34 +54,48 @@
       </div>
     </div>
     
-    <div class="mindmap">
-      <svg class="connections">
-        <g v-for="node in mindmapStore.visibleNodes" :key="`connection-${node.id}`">
-          <template v-if="node.parentId">
-            <!-- 贝塞尔曲线连接线 -->
-            <path
-              :d="getConnectionPath(node)"
-              stroke="#409eff"
-              stroke-width="2"
-              fill="none"
-            />
-            <!-- 箭头 -->
-            <circle
-              :cx="node.position.x"
-              :cy="node.position.y + 15"
-              r="3"
-              fill="#409eff"
-            />
-          </template>
-        </g>
-      </svg>
-      
-      <div class="viewport" ref="viewport">
+    <div 
+      class="mindmap"
+      @mousedown="startDrag"
+      @mousemove="onDrag"
+      @mouseup="stopDrag"
+      @mouseleave="stopDrag"
+      @wheel="handleZoom"
+    >
+      <div 
+        class="canvas"
+        :style="{
+          transform: `translate(${canvasPosition.x}px, ${canvasPosition.y}px) scale(${scale})`,
+          cursor: isDragging ? 'grabbing' : 'grab'
+        }"
+      >
+        <svg class="connections">
+          <g v-for="node in mindmapStore.visibleNodes" :key="`connection-${node.id}`">
+            <template v-if="node.parentId">
+              <!-- 贝塞尔曲线连接线 -->
+              <path
+                :d="getConnectionPath(node)"
+                stroke="#409eff"
+                stroke-width="2"
+                fill="none"
+              />
+              <!-- 箭头 -->
+              <circle
+                :cx="node.position.x"
+                :cy="node.position.y + 15"
+                r="3"
+                fill="#409eff"
+              />
+            </template>
+          </g>
+        </svg>
+        
         <div class="nodes-container">
           <Node
             v-for="node in mindmapStore.visibleNodes"
             :key="node.id"
             :node="node"
+            :scale="scale"
             @add-child="addChildNode(node.id)"
             @update-content="updateNodeContent(node.id, $event)"
             @update-style="updateNodeStyle(node.id, $event)"
@@ -780,6 +794,75 @@ function getConnectionPath(node) {
             ${controlX2} ${endY} 
             ${endX} ${endY}`
 }
+
+// Canvas position and zoom
+const canvasPosition = ref({ x: 0, y: 0 })
+const scale = ref(1)
+const isDragging = ref(false)
+const lastMousePosition = ref({ x: 0, y: 0 })
+
+// Drag handlers
+function startDrag(event) {
+  // Only start drag if clicking the background
+  if (event.target.classList.contains('mindmap') || 
+      event.target.classList.contains('canvas')) {
+    isDragging.value = true
+    lastMousePosition.value = {
+      x: event.clientX - canvasPosition.value.x,
+      y: event.clientY - canvasPosition.value.y
+    }
+  }
+}
+
+function onDrag(event) {
+  if (!isDragging.value) return
+  
+  canvasPosition.value = {
+    x: event.clientX - lastMousePosition.value.x,
+    y: event.clientY - lastMousePosition.value.y
+  }
+}
+
+function stopDrag() {
+  isDragging.value = false
+}
+
+// Zoom handler
+function handleZoom(event) {
+  event.preventDefault()
+  
+  const ZOOM_SPEED = 0.1
+  const MIN_SCALE = 0.1
+  const MAX_SCALE = 3
+  
+  // Calculate new scale
+  const delta = event.deltaY > 0 ? -ZOOM_SPEED : ZOOM_SPEED
+  const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale.value + delta))
+  
+  // Calculate zoom center (mouse position)
+  const rect = event.currentTarget.getBoundingClientRect()
+  const x = event.clientX - rect.left
+  const y = event.clientY - rect.top
+  
+  // Adjust position to zoom into mouse position
+  canvasPosition.value = {
+    x: x - (x - canvasPosition.value.x) * (newScale / scale.value),
+    y: y - (y - canvasPosition.value.y) * (newScale / scale.value)
+  }
+  
+  scale.value = newScale
+}
+
+// Center canvas on mount
+onMounted(() => {
+  const container = document.querySelector('.mindmap')
+  if (container) {
+    canvasPosition.value = {
+      x: container.clientWidth / 2,
+      y: container.clientHeight / 2
+    }
+  }
+})
 </script>
 
 <style>
@@ -788,6 +871,7 @@ function getConnectionPath(node) {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
 }
 
@@ -796,9 +880,7 @@ function getConnectionPath(node) {
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  z-index: 100;
 }
 
 .toolbar-left {
@@ -856,6 +938,15 @@ function getConnectionPath(node) {
   position: relative;
   overflow: hidden;
   background: #fafafa;
+  user-select: none;
+}
+
+.canvas {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .connections {
@@ -868,21 +959,15 @@ function getConnectionPath(node) {
   z-index: 0;
 }
 
-.viewport {
+.nodes-container {
   position: relative;
   width: 100%;
   height: 100%;
-  overflow: auto;
 }
 
-.nodes-container {
+.node {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  min-width: 100%;
-  min-height: 100%;
+  transition: transform 0.3s ease;
 }
 
 .selection-rect {
