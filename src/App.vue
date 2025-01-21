@@ -433,8 +433,9 @@ function addChildNode(parentId) {
       return
     }
 
-    // 获取所有已存在的子节点
-    const siblings = mindmapStore.nodes.value.filter(n => n.parentId === parentId)
+    // 获取所有已存在的子节点，添加安全检查
+    const nodes = mindmapStore.nodes?.value || []
+    const siblings = nodes.filter(n => n.parentId === parentId)
     
     // 计算新子节点的位置
     const childPosition = calculateChildPosition(parentNode, siblings.length)
@@ -473,9 +474,10 @@ function calculateChildPosition(parentNode, siblingCount) {
   }
 }
 
-// 调整同级节点布局
+// 修改 adjustSiblingsLayout 方法
 function adjustSiblingsLayout(parentId) {
-  const siblings = mindmapStore.nodes.value.filter(n => n.parentId === parentId)
+  const nodes = mindmapStore.nodes?.value || []
+  const siblings = nodes.filter(n => n.parentId === parentId)
   const parent = mindmapStore.getNode(parentId)
   
   if (!parent || siblings.length === 0) return
