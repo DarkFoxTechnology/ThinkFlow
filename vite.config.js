@@ -5,7 +5,7 @@ import { resolve } from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [vue()],
-  base: './',
+  base: '/ThinkFlow/',
   server: {
     port: 5173,
     host: true
@@ -18,9 +18,10 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html')
       },
       output: {
-        manualChunks: {
-          'vendor': ['vue', 'pinia', 'socket.io-client', 'yjs'],
-          'mindmap': ['konva']
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            return 'vendor'
+          }
         },
         chunkFileNames: 'assets/js/[name]-[hash].js',
         entryFileNames: 'assets/js/[name]-[hash].js',
