@@ -24,8 +24,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          npm install
-          npm install -g vite
+          npm ci
+          npm install -D vite@latest
 
       - name: Build
         run: |
