@@ -382,22 +382,15 @@ function addChildNode(parentId) {
 
   try {
     console.log('Adding child node to parent:', parentId)
-    console.log('Current nodes:', mindmapStore.nodes.value)
     
-    // 使用 let 而不是 const
-    let parentNode = mindmapStore.nodes.value?.find(n => n.id === parentId)
-    
+    // 直接从 mindmapStore 获取父节点
+    const parentNode = mindmapStore.getNode(parentId)
     if (!parentNode) {
-      console.error('Parent node not found in nodes array:', parentId)
-      
-      // 尝试直接从 ymap 获取父节点
-      parentNode = mindmapStore.getNode(parentId)
-      if (!parentNode) {
-        console.error('Parent node not found in ymap either')
-        return
-      }
-      console.log('Found parent node in ymap:', parentNode)
+      console.error('Parent node not found:', parentId)
+      return
     }
+    
+    console.log('Found parent node:', parentNode)
 
     // 在父节点右侧添加子节点
     const childPosition = {
