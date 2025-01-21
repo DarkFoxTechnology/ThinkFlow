@@ -393,37 +393,17 @@ function addNode() {
   console.log('Adding new node')
   
   try {
-    // 计算新节点的初始位置 - 在视口中心
+    // 计算初始位置 - 在视口中心
     let position = {
-      x: window.innerWidth / 2 - 60,
-      y: window.innerHeight / 2 - 30
+      x: viewport.value.scrollLeft + viewport.value.clientWidth / 2 - 60,
+      y: viewport.value.scrollTop + viewport.value.clientHeight / 2 - 30
     }
     
     // 获取所有现有节点
     const existingNodes = mindmapStore.nodes?.value || []
     
-    // 如果有节点重叠，调整位置
-    let attempts = 0
-    const maxAttempts = 100  // 防止无限循环
-    
-    while (attempts < maxAttempts) {
-      let hasCollision = false
-      
-      for (const node of existingNodes) {
-        if (checkCollision({ position }, node)) {
-          hasCollision = true
-          // 向右下方偏移一定距离
-          position = {
-            x: position.x + 20,
-            y: position.y + 20
-          }
-          break
-        }
-      }
-      
-      if (!hasCollision) break
-      attempts++
-    }
+    // 使用螺旋布局来寻找可用位置
+    position = findAvailablePosition(position, existingNodes)
 
     const newNodeId = mindmapStore.addNode({
       content: '新节点',
@@ -474,32 +454,18 @@ function addChildNode(parentId) {
     const siblings = nodes.filter(n => n.parentId === parentId)
     
     // 计算初始位置
-    let childPosition = calculateChildPosition(parentNode, siblings.length)
-    
-    // 检查并避免重叠
-    let attempts = 0
-    const maxAttempts = 100
-    
-    while (attempts < maxAttempts) {
-      let hasCollision = false
-      
-      for (const node of nodes) {
-        if (checkCollision({ position: childPosition }, node)) {
-          hasCollision = true
-          // 向下偏移
-          childPosition.y += 20
-          break
-        }
-      }
-      
-      if (!hasCollision) break
-      attempts++
+    let position = {
+      x: parentNode.position.x + 200,
+      y: parentNode.position.y
     }
+    
+    // 使用螺旋布局寻找可用位置
+    position = findAvailablePosition(position, nodes)
 
     // 添加子节点
     const newNodeId = mindmapStore.addNode({
       content: '子节点',
-      position: childPosition,
+      position,
       parentId: parentId,
       style: {
         backgroundColor: '#ffffff',
@@ -508,45 +474,82 @@ function addChildNode(parentId) {
       }
     })
 
-    // 如果有多个子节点，自动调整它们的位置
-    if (siblings.length > 0) {
-      adjustSiblingsLayout(parentId)
-    }
-
     console.log('Successfully added child node:', newNodeId)
   } catch (error) {
     console.error('Failed to add child node:', error)
   }
 }
 
-// 计算子节点位置
-function calculateChildPosition(parentNode, siblingCount) {
-  const VERTICAL_SPACING = 80  // 垂直间距
-  const HORIZONTAL_SPACING = 200  // 水平间距
-  
-  return {
-    x: parentNode.position.x + HORIZONTAL_SPACING,
-    y: parentNode.position.y - (VERTICAL_SPACING * siblingCount) / 2 + (VERTICAL_SPACING * siblingCount)
+// 添加螺旋布局寻找可用位置的函数
+function findAvailablePosition(startPosition, existingNodes) {
+  const STEP = 40  // 每次移动的步长
+  const MAX_ATTEMPTS = 100  // 最大尝试次数
+  let angle = 0  // 起始角度
+  let radius = STEP  // 起始半径
+  let position = { ...startPosition }
+  let attempts = 0
+
+  while (attempts < MAX_ATTEMPTS) {
+    let hasCollision = false
+    
+    // 检查当前位置是否有碰撞
+    for (const node of existingNodes) {
+      if (checkCollision({ position }, node)) {
+        hasCollision = true
+        break
+      }
+    }
+    
+    if (!hasCollision) {
+      return position
+    }
+    
+    // 使用极坐标系计算下一个位置
+    angle += Math.PI / 4  // 每次旋转45度
+    if (angle >= Math.PI * 2) {
+      angle = 0
+      radius += STEP  // 增加半径
+    }
+    
+    // 转换为笛卡尔坐标系
+    position = {
+      x: startPosition.x + radius * Math.cos(angle),
+      y: startPosition.y + radius * Math.sin(angle)
+    }
+    
+    attempts++
   }
+  
+  // 如果找不到合适的位置，返回最后一个尝试的位置
+  return position
 }
 
-// 修改 adjustSiblingsLayout 方法
-function adjustSiblingsLayout(parentId) {
-  const nodes = mindmapStore.nodes?.value || []
-  const siblings = nodes.filter(n => n.parentId === parentId)
-  const parent = mindmapStore.getNode(parentId)
-  
-  if (!parent || siblings.length === 0) return
-  
-  const VERTICAL_SPACING = 80
-  const startY = parent.position.y - (VERTICAL_SPACING * (siblings.length - 1)) / 2
-  
-  siblings.forEach((sibling, index) => {
-    mindmapStore.moveNode(sibling.id, {
-      x: parent.position.x + 200,
-      y: startY + (VERTICAL_SPACING * index)
-    })
-  })
+// 改进碰撞检测函数
+function checkCollision(node1, node2) {
+  const NODE_WIDTH = 120
+  const NODE_HEIGHT = 40
+  const BUFFER = 40  // 增加缓冲区大小
+
+  const rect1 = {
+    left: node1.position.x - BUFFER,
+    right: node1.position.x + NODE_WIDTH + BUFFER,
+    top: node1.position.y - BUFFER,
+    bottom: node1.position.y + NODE_HEIGHT + BUFFER
+  }
+
+  const rect2 = {
+    left: node2.position.x,
+    right: node2.position.x + NODE_WIDTH,
+    top: node2.position.y,
+    bottom: node2.position.y + NODE_HEIGHT
+  }
+
+  return !(
+    rect1.right < rect2.left ||
+    rect1.left > rect2.right ||
+    rect1.bottom < rect2.top ||
+    rect1.top > rect2.bottom
+  )
 }
 
 // 修改节点内容
@@ -776,20 +779,6 @@ function getConnectionPath(node) {
           C ${controlX1} ${startY} 
             ${controlX2} ${endY} 
             ${endX} ${endY}`
-}
-
-// 添加碰撞检测函数
-function checkCollision(node1, node2) {
-  const NODE_WIDTH = 120
-  const NODE_HEIGHT = 40
-  const BUFFER = 20  // 额外的缓冲区
-
-  return !(
-    node1.position.x + NODE_WIDTH + BUFFER < node2.position.x ||
-    node1.position.x > node2.position.x + NODE_WIDTH + BUFFER ||
-    node1.position.y + NODE_HEIGHT + BUFFER < node2.position.y ||
-    node1.position.y > node2.position.y + NODE_HEIGHT + BUFFER
-  )
 }
 </script>
 
