@@ -134,14 +134,16 @@ export const useMindmapStore = defineStore('mindmap', () => {
     
     // 默认在父节点右侧
     let x = parentNode.position.x + HORIZONTAL_SPACING
-    let y = parentNode.position.y
     
     // 根据兄弟节点数量决定布局
     const siblingCount = siblings.length
     
     if (siblingCount === 0) {
       // 第一个子节点，放在父节点同一水平线上
-      return { x, y }
+      return { 
+        x,
+        y: parentNode.position.y 
+      }
     } else if (siblingCount === 1) {
       // 第二个子节点，将现有节点向上移，新节点向下放置，保持对称
       const firstSibling = siblings[0]
@@ -158,41 +160,34 @@ export const useMindmapStore = defineStore('mindmap', () => {
         y: parentNode.position.y + VERTICAL_SPACING
       }
     } else {
-      // 第三个及以后的子节点
-      const middleIndex = Math.floor(siblingCount / 2)
+      // 三个及以上节点的处理
+      // 重新排列所有现有子节点，确保第二个节点在中间
+      const totalHeight = (siblingCount + 1) * VERTICAL_SPACING
+      const startY = parentNode.position.y - totalHeight / 2
       
-      // 重新排列所有现有子节点
+      // 先移动现有节点
       siblings.forEach((sibling, index) => {
-        let newY
-        
-        if (siblingCount % 2 === 0) {
-          // 偶数个节点
-          const offset = index - (siblingCount - 1) / 2
-          newY = parentNode.position.y + offset * VERTICAL_SPACING
+        if (index === 1) {
+          // 第二个节点始终在父节点水平线上
+          moveNode(sibling.id, {
+            x: sibling.position.x,
+            y: parentNode.position.y
+          })
         } else {
-          // 奇数个节点
-          if (index === middleIndex) {
-            // 中间节点与父节点对齐
-            newY = parentNode.position.y
-          } else if (index < middleIndex) {
-            // 上半部分节点
-            newY = parentNode.position.y - (middleIndex - index) * VERTICAL_SPACING
-          } else {
-            // 下半部分节点
-            newY = parentNode.position.y + (index - middleIndex) * VERTICAL_SPACING
-          }
+          // 其他节点均匀分布在上下两侧
+          const isUpper = index === 0
+          const position = isUpper ? index : index + 1
+          moveNode(sibling.id, {
+            x: sibling.position.x,
+            y: startY + position * VERTICAL_SPACING
+          })
         }
-        
-        moveNode(sibling.id, {
-          x: sibling.position.x,
-          y: newY
-        })
       })
       
       // 新节点的位置
       return {
         x,
-        y: parentNode.position.y + (Math.ceil(siblingCount / 2)) * VERTICAL_SPACING
+        y: startY + (siblingCount + 1) * VERTICAL_SPACING
       }
     }
   }
