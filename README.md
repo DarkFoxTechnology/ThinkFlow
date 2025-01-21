@@ -56,7 +56,7 @@
  * Designed by DarkFox
  -->
 
-# Online Mind Map
+# ThinkFlow
 
 A real-time collaborative mind mapping application built with Vue.js and Node.js.
 
