@@ -29,9 +29,8 @@ jobs:
 
       - name: Build
         run: |
+          echo "VITE_BASE_URL=/ThinkFlow/" > .env
           npm run build
-        env:
-          VITE_BASE_URL: '/ThinkFlow/'
 
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
