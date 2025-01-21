@@ -391,16 +391,48 @@ function getParentPosition(node) {
 // 修改 addNode 方法
 function addNode() {
   console.log('Adding new node')
-  // 计算新节点位置 - 在视口中心
-  const center = {
-    x: window.innerWidth / 2 - 60,
-    y: window.innerHeight / 2 - 30
-  }
-
+  
   try {
+    // 计算新节点的初始位置 - 在视口中心
+    let position = {
+      x: window.innerWidth / 2 - 60,
+      y: window.innerHeight / 2 - 30
+    }
+    
+    // 获取所有现有节点
+    const existingNodes = mindmapStore.nodes?.value || []
+    
+    // 如果有节点重叠，调整位置
+    let attempts = 0
+    const maxAttempts = 100  // 防止无限循环
+    
+    while (attempts < maxAttempts) {
+      let hasCollision = false
+      
+      for (const node of existingNodes) {
+        if (checkCollision({ position }, node)) {
+          hasCollision = true
+          // 向右下方偏移一定距离
+          position = {
+            x: position.x + 20,
+            y: position.y + 20
+          }
+          break
+        }
+      }
+      
+      if (!hasCollision) break
+      attempts++
+    }
+
     const newNodeId = mindmapStore.addNode({
       content: '新节点',
-      position: center
+      position,
+      style: {
+        backgroundColor: '#ffffff',
+        textColor: '#333333',
+        borderColor: '#ddd'
+      }
     })
     console.log('New node added:', newNodeId)
   } catch (error) {
@@ -437,12 +469,32 @@ function addChildNode(parentId) {
       return
     }
 
-    // 获取所有已存在的子节点，添加安全检查
+    // 获取所有已存在的子节点
     const nodes = mindmapStore.nodes?.value || []
     const siblings = nodes.filter(n => n.parentId === parentId)
     
-    // 计算新子节点的位置
-    const childPosition = calculateChildPosition(parentNode, siblings.length)
+    // 计算初始位置
+    let childPosition = calculateChildPosition(parentNode, siblings.length)
+    
+    // 检查并避免重叠
+    let attempts = 0
+    const maxAttempts = 100
+    
+    while (attempts < maxAttempts) {
+      let hasCollision = false
+      
+      for (const node of nodes) {
+        if (checkCollision({ position: childPosition }, node)) {
+          hasCollision = true
+          // 向下偏移
+          childPosition.y += 20
+          break
+        }
+      }
+      
+      if (!hasCollision) break
+      attempts++
+    }
 
     // 添加子节点
     const newNodeId = mindmapStore.addNode({
@@ -724,6 +776,20 @@ function getConnectionPath(node) {
           C ${controlX1} ${startY} 
             ${controlX2} ${endY} 
             ${endX} ${endY}`
+}
+
+// 添加碰撞检测函数
+function checkCollision(node1, node2) {
+  const NODE_WIDTH = 120
+  const NODE_HEIGHT = 40
+  const BUFFER = 20  // 额外的缓冲区
+
+  return !(
+    node1.position.x + NODE_WIDTH + BUFFER < node2.position.x ||
+    node1.position.x > node2.position.x + NODE_WIDTH + BUFFER ||
+    node1.position.y + NODE_HEIGHT + BUFFER < node2.position.y ||
+    node1.position.y > node2.position.y + NODE_HEIGHT + BUFFER
+  )
 }
 </script>
 
