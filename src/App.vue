@@ -282,6 +282,10 @@ function handleMouseDown(event) {
     selectionEnd.value = { ...selectionStart.value }
     isSelecting.value = true
     
+    // 设置样式防止文本选择
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'crosshair'
+    
     // 如果没有按住 Shift，清除现有选择
     if (!event.shiftKey) {
       mindmapStore.clearSelection()
@@ -675,24 +679,32 @@ function handleSearch() {
 const isSelecting = ref(false)
 const selectionRect = ref(null)
 
-// 监听 nodes 的变化
-watch(() => mindmapStore.nodes.value, (nodes) => {
-  // 如果没有节点，添加一个中心节点
-  if (nodes && nodes.length === 0) {
-    const centerX = viewportWidth.value / 2 - 60  // 60 是节点宽度的一半
-    const centerY = viewportHeight.value / 2 - 30  // 30 是节点高度的一半
-    
-    mindmapStore.addNode({
-      content: '中心主题',
-      position: { x: centerX, y: centerY },
-      style: {
-        backgroundColor: '#ffffff',
-        textColor: '#333333',
-        borderColor: '#409eff'
-      }
-    })
+// 在其他事件处理函数附近添加
+function handleMouseUp(event) {
+  if (!isSelecting.value) return
+  
+  // 结束框选
+  isSelecting.value = false
+  selectionStart.value = null
+  selectionEnd.value = null
+  selectionRect.value = null
+  
+  // 如果移动距离太小，可能是点击而不是拖拽
+  const minDragDistance = 5
+  if (
+    selectionRect.value && (
+      selectionRect.value.width < minDragDistance ||
+      selectionRect.value.height < minDragDistance
+    )
+  ) {
+    // 如果是点击，清除选择
+    mindmapStore.clearSelection()
   }
-}, { immediate: true })  // immediate: true 确保立即执行一次
+  
+  // 清理临时状态
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+}
 
 // 计算连接线路径
 function getConnectionPath(node) {
