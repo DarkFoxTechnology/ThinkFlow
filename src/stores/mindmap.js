@@ -79,40 +79,30 @@ export const useMindmapStore = defineStore('mindmap', () => {
   function addNode(node) {
     try {
       console.log('Adding node:', node)
-      if (!ymap) {
-        console.error('ymap is not initialized')
-        return null
-      }
-
       const newNode = {
         id: uuidv4(),
         content: node.content || '新节点',
         position: {
-          x: node.position?.x || window.innerWidth / 2,
-          y: node.position?.y || window.innerHeight / 2
+          x: node.position?.x || 0,
+          y: node.position?.y || 0
         },
         parentId: node.parentId || null,
         style: node.style || {
           backgroundColor: '#ffffff',
-          textColor: '#000000',
-          borderColor: '#cccccc'
+          textColor: '#333333',
+          borderColor: '#ddd'
         }
       }
       
-      // 如果是子节点，调整位置
-      if (newNode.parentId) {
-        const parentNode = ymap.get(newNode.parentId)
-        if (parentNode) {
-          newNode.position = {
-            x: parentNode.position.x + 200,
-            y: parentNode.position.y
-          }
-        }
-      }
-      
-      ymap.set(newNode.id, newNode)
+      // 使用事务来确保原子性
+      ydoc.transact(() => {
+        ymap.set(newNode.id, newNode)
+      })
+
+      // 更新选中状态
       selectedNodeId.value = newNode.id
-      updateNodes() // 更新节点数据
+
+      console.log('Node added successfully:', newNode)
       return newNode.id
     } catch (error) {
       console.error('Error adding node:', error)
@@ -305,6 +295,16 @@ export const useMindmapStore = defineStore('mindmap', () => {
     stopInitListener()
   })
 
+  // 在 store 中添加获取节点的方法
+  function getNode(id) {
+    try {
+      return ymap.get(id)
+    } catch (error) {
+      console.error('Error getting node:', error)
+      return null
+    }
+  }
+
   return {
     nodes,
     selectedNodeId,
@@ -314,6 +314,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
     moveNode,
     updateNodeContent,
     updateNodeStyle,
+    getNode,
     undo,
     redo,
     getNodeDepth,

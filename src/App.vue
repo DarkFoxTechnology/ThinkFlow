@@ -306,9 +306,6 @@ onMounted(() => {
   viewport.value?.addEventListener('mousedown', handleMouseDown)
   window.addEventListener('mousemove', handleMouseMove)
   window.addEventListener('mouseup', handleMouseUp)
-  
-  // 初始化思维导图
-  initMindmap()
 })
 
 onUnmounted(() => {
@@ -379,30 +376,48 @@ function removeNode() {
 // 修改 addChildNode 方法
 function addChildNode(parentId) {
   if (!parentId) {
-    console.log('No parent node specified')
-    return
-  }
-
-  const nodes = mindmapStore.nodes
-  const parentNode = nodes.value.find(n => n.id === parentId)
-  
-  if (!parentNode) {
-    console.log('Parent node not found:', parentId)
+    console.error('No parent node ID provided')
     return
   }
 
   try {
+    console.log('Adding child node to parent:', parentId)
+    console.log('Current nodes:', mindmapStore.nodes.value)
+    
+    // 使用 let 而不是 const
+    let parentNode = mindmapStore.nodes.value?.find(n => n.id === parentId)
+    
+    if (!parentNode) {
+      console.error('Parent node not found in nodes array:', parentId)
+      
+      // 尝试直接从 ymap 获取父节点
+      parentNode = mindmapStore.getNode(parentId)
+      if (!parentNode) {
+        console.error('Parent node not found in ymap either')
+        return
+      }
+      console.log('Found parent node in ymap:', parentNode)
+    }
+
     // 在父节点右侧添加子节点
     const childPosition = {
       x: parentNode.position.x + 200,
       y: parentNode.position.y
     }
 
-    mindmapStore.addNode({
+    // 添加子节点
+    const newNodeId = mindmapStore.addNode({
       content: '子节点',
       position: childPosition,
-      parentId: parentId
+      parentId: parentId,
+      style: {
+        backgroundColor: '#ffffff',
+        textColor: '#333333',
+        borderColor: '#ddd'
+      }
     })
+
+    console.log('Successfully added child node:', newNodeId)
   } catch (error) {
     console.error('Failed to add child node:', error)
   }
@@ -569,10 +584,10 @@ const selectionStart = ref(null)
 const isSelecting = ref(false)
 const selectionRect = ref(null)
 
-// 初始化函数
-function initMindmap() {
+// 监听 nodes 的变化
+watch(() => mindmapStore.nodes.value, (nodes) => {
   // 如果没有节点，添加一个中心节点
-  if (mindmapStore.nodes.value.length === 0) {
+  if (nodes && nodes.length === 0) {
     const centerX = viewportWidth.value / 2 - 60  // 60 是节点宽度的一半
     const centerY = viewportHeight.value / 2 - 30  // 30 是节点高度的一半
     
@@ -586,7 +601,7 @@ function initMindmap() {
       }
     })
   }
-}
+}, { immediate: true })  // immediate: true 确保立即执行一次
 </script>
 
 <style>
