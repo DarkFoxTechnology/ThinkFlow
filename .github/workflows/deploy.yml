@@ -23,6 +23,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          npm install -g vite
           npm install
           npm install @vitejs/plugin-vue@4.5.2
           npm install vite@5.0.10
@@ -34,7 +35,10 @@ jobs:
           echo "VITE_BASE_URL=/ThinkFlow/" >> .env
 
       - name: Build
-        run: npm run build
+        run: |
+          npm run build
+        env:
+          CI: true
 
       - name: Prepare Deployment
         run: |
