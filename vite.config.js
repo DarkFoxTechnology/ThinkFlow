@@ -14,31 +14,22 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html')
-      },
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('vue') || id.includes('pinia')) {
-              return 'vendor-vue'
-            }
-            if (id.includes('yjs') || id.includes('socket.io')) {
-              return 'vendor-sync'
-            }
-            return 'vendor'
-          }
-        },
         chunkFileNames: 'assets/js/[name]-[hash].js',
         entryFileNames: 'assets/js/[name]-[hash].js',
-        assetFileNames: 'assets/[ext]/[name]-[hash].[ext]'
+        assetFileNames: 'assets/[ext]/[name]-[hash].[ext]',
+        manualChunks: {
+          'vendor': ['vue', 'vue-router', 'pinia'],
+          'mindmap': ['konva', 'marked'],
+          'collaboration': ['yjs', 'y-webrtc', 'y-indexeddb']
+        }
       }
     },
     chunkSizeWarningLimit: 1000
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src'),
+      '@': resolve(__dirname, './src'),
       'vue': 'vue/dist/vue.esm-bundler.js'
     }
   },
