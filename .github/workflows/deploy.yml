@@ -20,11 +20,19 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '18'
+          cache: 'npm'
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Install Dependencies
         run: |
-          rm -rf node_modules package-lock.json
-          npm install
+          npm ci
           npm install @vitejs/plugin-vue@4.5.2
           npm install vite@5.0.10
 
@@ -41,10 +49,15 @@ jobs:
           ls -la dist/
           echo "Checking index.html content:"
           cat dist/index.html
+          echo "Checking asset manifest:"
+          cat dist/manifest.json || echo "No manifest found"
 
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: gh-pages
           folder: dist
-          clean: true 
+          clean: true
+          clean-exclude: |
+            .nojekyll
+            CNAME 
