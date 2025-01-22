@@ -35,6 +35,13 @@ jobs:
           VITE_BASE_URL: '/ThinkFlow/'
           NODE_ENV: production
 
+      - name: List Build Output
+        run: |
+          echo "Listing contents of dist directory:"
+          ls -la dist/
+          echo "Checking index.html content:"
+          cat dist/index.html
+
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
