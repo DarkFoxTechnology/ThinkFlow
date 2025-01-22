@@ -15,16 +15,11 @@ export default defineConfig({
     assetsDir: 'assets',
     rollupOptions: {
       output: {
+        format: 'es',
         chunkFileNames: 'assets/js/[name]-[hash].js',
         entryFileNames: 'assets/js/[name]-[hash].js',
-        assetFileNames: 'assets/[ext]/[name]-[hash].[ext]',
-        manualChunks: {
-          'vendor': ['vue', 'vue-router', 'pinia'],
-          'mindmap': ['konva', 'marked'],
-          'collaboration': ['yjs', 'y-webrtc', 'y-indexeddb']
-        }
+        assetFileNames: 'assets/[ext]/[name]-[hash].[ext]'
       },
-      external: ['vue'],
       input: {
         main: resolve(__dirname, 'index.html')
       }
@@ -36,7 +31,9 @@ export default defineConfig({
         drop_console: true,
         drop_debugger: true
       }
-    }
+    },
+    target: 'esnext',
+    modulePreload: true
   },
   resolve: {
     alias: {

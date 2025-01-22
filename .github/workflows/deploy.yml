@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - main # 或者你的默认分支名称
+      - main
 
 permissions:
   contents: write
@@ -20,44 +20,30 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '18'
-          cache: 'npm'
-
-      - name: Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
 
       - name: Install Dependencies
         run: |
-          npm ci
+          npm install
           npm install @vitejs/plugin-vue@4.5.2
           npm install vite@5.0.10
 
-      - name: Build
+      - name: Create Build Environment
         run: |
-          npm run build
-        env:
-          VITE_BASE_URL: '/ThinkFlow/'
-          NODE_ENV: production
+          echo "Creating .env file"
+          echo "NODE_ENV=production" > .env
+          echo "VITE_BASE_URL=/ThinkFlow/" >> .env
 
-      - name: List Build Output
+      - name: Build
+        run: npm run build
+
+      - name: Prepare Deployment
         run: |
-          echo "Listing contents of dist directory:"
-          ls -la dist/
-          echo "Checking index.html content:"
-          cat dist/index.html
-          echo "Checking asset manifest:"
-          cat dist/manifest.json || echo "No manifest found"
+          touch dist/.nojekyll
+          cp dist/index.html dist/404.html
 
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: gh-pages
           folder: dist
-          clean: true
-          clean-exclude: |
-            .nojekyll
-            CNAME 
+          clean: true 
