@@ -1,12 +1,23 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { ydoc, ymap } from '../utils/socket'
+import { getYDoc, getYMap, resetYjsInstances, initWebsocket, cleanup as cleanupWebsocket } from '../utils/socket'
 import { UndoManager } from 'yjs'
 import { autoLayout, searchNodes } from '../utils/mindmap'
+import { 
+  handleError, 
+  logError, 
+  validateNode, 
+  withRetry,
+  ErrorType,
+  MindMapError 
+} from '../utils/error'
+import * as Y from 'yjs'
+import { WebsocketProvider } from 'y-websocket'
 
 export const useMindmapStore = defineStore('mindmap', () => {
   const isLoading = ref(true)
+  const error = ref(null)
   
   // 使用 ref 而不是 computed 来存储节点数据
   const nodes = ref([])
@@ -14,33 +25,76 @@ export const useMindmapStore = defineStore('mindmap', () => {
   const selectedNodeId = ref(null)
   
   // 初始化撤销管理器
-  const undoManager = new UndoManager(ymap)
+  const undoManager = new UndoManager(getYMap())
 
-  // 初始化监听
-  const initListener = () => {
-    const handleLoad = () => {
+  // 清理函数状态
+  let wsProvider = null
+  let autoSaveInterval = null
+  let mapObserver = null
+
+  // 初始化连接
+  async function initConnection() {
+    try {
+      isLoading.value = true
+      error.value = null
+
+      // 清理现有连接
+      cleanup()
+
+      // 重置 Y.js 实例
+      const { ydoc, ymap } = resetYjsInstances()
+
+      // 设置 WebSocket provider
+      wsProvider = initWebsocket('mindmap')
+
+      // 设置监听器
+      mapObserver = (event) => {
+        console.log('ymap changed, updating nodes')
+        updateNodes()
+      }
+      ymap.observe(mapObserver)
+
+      // 设置自动保存
+      autoSaveInterval = setInterval(() => {
+        const data = ymap.toJSON()
+        localStorage.setItem('mindmap-autosave', JSON.stringify(data))
+      }, 30000)
+
       isLoading.value = false
+    } catch (err) {
+      const error = handleError(err, 'Failed to initialize connection')
+      setError(error)
+      throw error
     }
-    
-    ymap.observe(handleLoad)
-    return () => ymap.unobserve(handleLoad)
   }
   
-  // 启动初始化监听
-  const stopInitListener = initListener()
+  // 初始化监听
+  const initListener = () => {
+    try {
+      const handleLoad = () => {
+        isLoading.value = false
+      }
+      
+      getYMap().observe(handleLoad)
+      return () => getYMap().unobserve(handleLoad)
+    } catch (err) {
+      throw handleError(err, 'Failed to initialize listener')
+    }
+  }
   
   // 自动保存
   const autoSave = () => {
-    const saveInterval = setInterval(() => {
-      const data = ymap.toJSON()
-      localStorage.setItem('mindmap-autosave', JSON.stringify(data))
-    }, 5000)
-    
-    return () => clearInterval(saveInterval)
+    try {
+      const saveInterval = setInterval(() => {
+        const data = getYMap().toJSON()
+        localStorage.setItem('mindmap-autosave', JSON.stringify(data))
+      }, 5000)
+      
+      return () => clearInterval(saveInterval)
+    } catch (err) {
+      throw handleError(err, 'Failed to setup auto save')
+    }
   }
-
-  // 启动自动保存
-  const stopAutoSave = autoSave()
 
   // 过滤被折叠节点的子节点
   function filterCollapsedNodes(nodes) {
@@ -64,15 +118,21 @@ export const useMindmapStore = defineStore('mindmap', () => {
     return result
   }
 
-  // 添加一个方法来更新节点数据
+  // 更新节点数据
   function updateNodes() {
     try {
-      if (!ymap) return
-      const allNodes = Array.from(ymap.values() || [])
+      if (!getYMap()) {
+        throw new MindMapError(
+          ErrorType.VALIDATION,
+          'Y.js map is not initialized'
+        )
+      }
+      const allNodes = Array.from(getYMap().values() || [])
       nodes.value = filterCollapsedNodes(allNodes)
-      console.log('Nodes updated:', nodes.value)
-    } catch (error) {
-      console.error('Error updating nodes:', error)
+    } catch (err) {
+      const error = handleError(err, 'Error updating nodes')
+      logError(error)
+      throw error
     }
   }
 
@@ -176,7 +236,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
 
   // Helper function to move a node and its subtree
   function moveNode(id, newPosition) {
-    const node = ymap.get(id)
+    const node = getYMap().get(id)
     if (!node) return
 
     // Calculate the offset
@@ -184,13 +244,13 @@ export const useMindmapStore = defineStore('mindmap', () => {
     const dy = newPosition.y - node.position.y
 
     // Get all descendants
-    const allNodes = Array.from(ymap.values())
+    const allNodes = Array.from(getYMap().values())
     const descendants = getDescendants(id, allNodes)
 
     // Move the node and all its descendants
-    ymap.set(id, { ...node, position: newPosition })
+    getYMap().set(id, { ...node, position: newPosition })
     descendants.forEach(desc => {
-      ymap.set(desc.id, {
+      getYMap().set(desc.id, {
         ...desc,
         position: {
           x: desc.position.x + dx,
@@ -295,36 +355,20 @@ export const useMindmapStore = defineStore('mindmap', () => {
   // 修改 removeNode 方法
   function removeNode(id) {
     try {
-      console.log('Removing node:', id)
-      if (!id || !ymap) return
-
-      const nodesToDelete = [id]
-      const allNodes = Array.from(ymap.values())
-      
-      function findChildren(parentId) {
-        allNodes.forEach(node => {
-          if (node.parentId === parentId) {
-            nodesToDelete.push(node.id)
-            findChildren(node.id)
-          }
-        })
+      if (!id) {
+        throw new MindMapError(
+          ErrorType.VALIDATION,
+          'Node ID is required'
+        )
       }
-      
-      findChildren(id)
-      
-      // 使用事务来确保原子性
-      ydoc.transact(() => {
-        nodesToDelete.forEach(nodeId => {
-          ymap.delete(nodeId)
-        })
-        if (selectedNodeId.value === id) {
-          selectedNodeId.value = null
-        }
-      })
 
-      updateNodes() // 更新节点数据
-    } catch (error) {
-      console.error('Error removing node:', error)
+      const nodesToDelete = [id, ...getDescendants(id, Array.from(getYMap().values())).map(n => n.id)]
+      nodesToDelete.forEach(nodeId => getYMap().delete(nodeId))
+      updateNodes()
+    } catch (err) {
+      const error = handleError(err, 'Failed to remove node')
+      logError(error)
+      throw error
     }
   }
 
@@ -342,17 +386,62 @@ export const useMindmapStore = defineStore('mindmap', () => {
     )
   }
 
+  // 更新节点内容
   function updateNodeContent(id, content) {
-    const node = ymap.get(id)
-    if (node) {
+    try {
+      if (!id) {
+        throw new MindMapError(
+          ErrorType.VALIDATION,
+          'Node ID is required'
+        )
+      }
+
+      const ymap = getYMap()
+      const node = ymap.get(id)
+      if (!node) {
+        throw new MindMapError(
+          ErrorType.VALIDATION,
+          'Node not found'
+        )
+      }
+
       ymap.set(id, { ...node, content })
+      updateNodes()
+    } catch (err) {
+      const error = handleError(err, 'Failed to update node content')
+      logError(error)
+      throw error
     }
   }
 
+  // 更新节点样式
   function updateNodeStyle(id, style) {
-    const node = ymap.get(id)
-    if (node) {
-      ymap.set(id, { ...node, style: { ...node.style, ...style } })
+    try {
+      if (!id) {
+        throw new MindMapError(
+          ErrorType.VALIDATION,
+          'Node ID is required'
+        )
+      }
+
+      const ymap = getYMap()
+      const node = ymap.get(id)
+      if (!node) {
+        throw new MindMapError(
+          ErrorType.VALIDATION,
+          'Node not found'
+        )
+      }
+
+      ymap.set(id, {
+        ...node,
+        style: { ...node.style, ...style }
+      })
+      updateNodes()
+    } catch (err) {
+      const error = handleError(err, 'Failed to update node style')
+      logError(error)
+      throw error
     }
   }
 
@@ -368,11 +457,11 @@ export const useMindmapStore = defineStore('mindmap', () => {
   // 获取节点层级
   function getNodeDepth(id) {
     let depth = 0
-    let node = ymap.get(id)
+    let node = getYMap().get(id)
     
     while (node?.parentId) {
       depth++
-      node = ymap.get(node.parentId)
+      node = getYMap().get(node.parentId)
     }
     
     return depth
@@ -380,16 +469,10 @@ export const useMindmapStore = defineStore('mindmap', () => {
 
   // 获取可见节点
   const visibleNodes = computed(() => {
-    try {
-      return nodes.value.filter(node => {
-        if (!node.parentId) return true
-        const parent = ymap?.get(node.parentId)
-        return !parent?.style?.collapsed
-      })
-    } catch (error) {
-      console.error('Error getting visible nodes:', error)
-      return []
+    if (searchResults.value.length > 0) {
+      return searchResults.value
     }
+    return nodes.value
   })
 
   // 添加以下方法到 store
@@ -419,7 +502,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
 
   function batchMoveNodes(deltaX, deltaY) {
     selectedNodes.value.forEach(id => {
-      const node = ymap.get(id)
+      const node = getYMap().get(id)
       if (node) {
         const newPosition = {
           x: node.position.x + deltaX,
@@ -430,28 +513,98 @@ export const useMindmapStore = defineStore('mindmap', () => {
     })
   }
 
-  // 导入导出
-  function importNodes(nodes) {
-    // 清除现有节点
-    Array.from(ymap.keys()).forEach(key => {
-      ymap.delete(key)
-    })
-    
-    // 导入新节点
-    nodes.forEach(node => {
-      ymap.set(node.id, node)
-    })
+  // 添加节点
+  function addNode({ content = '', position = { x: 0, y: 0 }, parentId = null, style = {} }) {
+    try {
+      const node = {
+        id: uuidv4(),
+        content,
+        position,
+        parentId,
+        style,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+
+      const validationErrors = validateNode(node)
+      if (validationErrors.length > 0) {
+        throw new MindMapError(
+          ErrorType.VALIDATION,
+          `Invalid node data: ${validationErrors.join(', ')}`
+        )
+      }
+
+      getYMap().set(node.id, node)
+      selectedNodeId.value = node.id
+      updateNodes()
+      return node.id
+    } catch (err) {
+      const error = handleError(err, 'Failed to add node')
+      logError(error)
+      throw error
+    }
   }
 
+  // 导入节点
+  function importNodes(nodes) {
+    try {
+      // 验证所有节点
+      for (const node of nodes) {
+        const validationErrors = validateNode(node)
+        if (validationErrors.length > 0) {
+          throw new MindMapError(
+            ErrorType.VALIDATION,
+            `Invalid node data: ${validationErrors.join(', ')}`
+          )
+        }
+      }
+
+      // 清除现有节点
+      Array.from(getYMap().keys()).forEach(key => getYMap().delete(key))
+      
+      // 导入新节点，确保每个节点都有唯一的 ID
+      nodes.forEach(node => {
+        const newNode = {
+          ...node,
+          id: node.id || uuidv4(),
+          createdAt: node.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        getYMap().set(newNode.id, newNode)
+      })
+      
+      updateNodes()
+    } catch (err) {
+      const error = handleError(err, 'Failed to import nodes')
+      logError(error)
+      throw error
+    }
+  }
+
+  // 导出节点
   function exportNodes() {
-    return Array.from(ymap.values())
+    try {
+      return Array.from(getYMap().values())
+    } catch (err) {
+      const error = handleError(err, 'Failed to export nodes')
+      logError(error)
+      throw error
+    }
   }
 
   // 自动布局
   function applyAutoLayout() {
-    const nodes = exportNodes()
-    const layoutedNodes = autoLayout(nodes)
-    importNodes(layoutedNodes)
+    try {
+      const layoutedNodes = autoLayout(Array.from(getYMap().values()))
+      layoutedNodes.forEach(node => {
+        getYMap().set(node.id, node)
+      })
+      updateNodes()
+    } catch (err) {
+      const error = handleError(err, 'Failed to apply auto layout')
+      logError(error)
+      throw error
+    }
   }
 
   // 搜索
@@ -460,25 +613,63 @@ export const useMindmapStore = defineStore('mindmap', () => {
 
   function updateSearch(keyword) {
     searchKeyword.value = keyword
-    searchResults.value = searchNodes(Array.from(ymap.values()), keyword)
+    if (!keyword.trim()) {
+      searchResults.value = []
+      return
+    }
+    searchResults.value = nodes.value.filter(node => 
+      node.content.toLowerCase().includes(keyword.toLowerCase())
+    )
   }
 
   // 监听 ymap 变化
-  ymap.observe(() => {
+  getYMap().observe(() => {
     console.log('ymap changed, updating nodes')
     updateNodes()
   })
 
-  // 清理
+  // 清理函数
+  function cleanup() {
+    try {
+      // 清理 WebSocket provider
+      cleanupWebsocket()
+      wsProvider = null
+
+      // 清理自动保存定时器
+      if (autoSaveInterval) {
+        clearInterval(autoSaveInterval)
+        autoSaveInterval = null
+      }
+
+      // 清理地图观察者
+      const ymap = getYMap()
+      if (mapObserver && ymap) {
+        ymap.unobserve(mapObserver)
+        mapObserver = null
+      }
+
+      // 重置状态
+      isLoading.value = false
+      error.value = null
+      nodes.value = []
+      selectedNodeId.value = null
+      searchResults.value = []
+      searchKeyword.value = ''
+    } catch (err) {
+      const error = handleError(err, 'Failed to cleanup')
+      logError(error)
+    }
+  }
+
+  // 在组件卸载时清理
   onUnmounted(() => {
-    stopAutoSave()
-    stopInitListener()
+    cleanup()
   })
 
   // 在 store 中添加获取节点的方法
   function getNode(id) {
     try {
-      return ymap.get(id)
+      return getYMap().get(id)
     } catch (error) {
       console.error('Error getting node:', error)
       return null
@@ -495,62 +686,27 @@ export const useMindmapStore = defineStore('mindmap', () => {
   }
   localStorage.setItem('mindmap-user', JSON.stringify(currentUser))
 
-  // 修改 addNode 函数中的位置计算部分
-  function addNode(node) {
-    try {
-      console.log('Adding node:', node)
-      
-      let position = { ...node.position }
-      
-      if (node.parentId) {
-        const parentNode = ymap.get(node.parentId)
-        if (!parentNode) return null
-
-        // 获取同级节点（不包括新节点）
-        const siblings = Array.from(ymap.values())
-          .filter(n => n.parentId === node.parentId)
-          .sort((a, b) => a.position.y - b.position.y)
-
-        // 计算新节点位置
-        position = calculateChildPosition(parentNode, siblings)
-      } else {
-        position = findAvailablePosition(position, Array.from(ymap.values()))
-      }
-
-      // 创建新节点
-      const newNode = {
-        id: uuidv4(),
-        content: node.content || '新节点',
-        position,
-        parentId: node.parentId || null,
-        style: node.style || {
-          backgroundColor: '#ffffff',
-          textColor: '#333333',
-          borderColor: '#ddd'
-        }
-      }
-      
-      // 使用事务来确保原子性
-      ydoc.transact(() => {
-        ymap.set(newNode.id, newNode)
-      })
-
-      // 更新选中状态
-      selectedNodeId.value = newNode.id
-      updateNodes()
-
-      return newNode.id
-    } catch (error) {
-      console.error('Error adding node:', error)
-      return null
+  // 错误处理
+  function setError(err) {
+    if (err instanceof MindMapError) {
+      error.value = err
+    } else {
+      error.value = handleError(err, 'Unexpected error')
     }
+    logError(error.value)
   }
 
-  // Selection methods
-  function setSelectedNode(id) {
-    selectedNodeId.value = id
-    selectedNodes.value.clear()
+  // 清除错误
+  function clearError() {
+    error.value = null
   }
+
+  // 监听错误状态
+  watch(error, (newError) => {
+    if (newError) {
+      console.error('MindMap error:', newError)
+    }
+  })
 
   return {
     isLoading,
@@ -578,6 +734,11 @@ export const useMindmapStore = defineStore('mindmap', () => {
     searchResults,
     searchKeyword,
     updateSearch,
-    collaborators
+    collaborators,
+    error,
+    initConnection,
+    cleanup,
+    setError,
+    clearError
   }
 })

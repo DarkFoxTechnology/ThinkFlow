@@ -9,18 +9,27 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "chart.js": "^4.4.7",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
     "file-saver": "^2.0.5",
     "konva": "^9.3.0",
     "lodash-es": "^4.17.21",
     "marked": "^11.2.0",
+    "mongoose": "^8.9.5",
     "pinia": "^2.1.7",
+    "redis": "^4.7.0",
+    "socket.io": "^4.8.1",
     "socket.io-client": "^4.7.4",
     "uuid": "^9.0.1",
     "vue": "^3.3.11",
     "vue-router": "^4.5.0",
+    "winston": "^3.17.0",
+    "ws": "^8.18.0",
     "y-indexeddb": "^9.0.12",
-    "y-webrtc": "^10.2.5",
-    "yjs": "^13.6.10"
+    "y-webrtc": "^10.3.0",
+    "y-websocket": "^2.1.0",
+    "yjs": "^13.6.23"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "4.5.2",

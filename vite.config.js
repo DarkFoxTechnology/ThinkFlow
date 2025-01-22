@@ -5,10 +5,21 @@ import { resolve } from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [vue()],
-  base: '/ThinkFlow/',
+  base: './',
   server: {
     port: 5173,
-    host: true
+    host: true,
+    headers: {
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    },
+    mime: {
+      'image/png': ['png'],
+      'image/svg+xml': ['svg'],
+      'text/html': ['html']
+    }
   },
   build: {
     outDir: 'dist',
@@ -44,5 +55,10 @@ export default defineConfig({
   optimizeDeps: {
     include: ['vue', 'pinia', 'yjs', 'socket.io-client'],
     exclude: []
+  },
+  define: {
+    __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
+    __VUE_OPTIONS_API__: 'true',
+    __VUE_PROD_DEVTOOLS__: 'false'
   }
 })

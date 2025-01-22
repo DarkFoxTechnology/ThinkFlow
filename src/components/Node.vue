@@ -247,9 +247,13 @@ export default {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   user-select: none;
-  will-change: transform; /* Optimize for animations */
-  transform: translate(v-bind('node.position.x + "px"'), v-bind('node.position.y + "px"'));
+  will-change: transform;
 }
 
 /* Remove transition during dragging */
@@ -272,6 +276,23 @@ export default {
   width: 100%;
   text-align: center;
   word-break: break-word;
+  -webkit-touch-callout: text !important;
+  -webkit-user-select: text !important;
+  -khtml-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
+input[type="text"],
+textarea,
+[contenteditable="true"] {
+  -webkit-touch-callout: text !important;
+  -webkit-user-select: text !important;
+  -khtml-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
 }
 
 .node-tools {
@@ -287,6 +308,8 @@ export default {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   opacity: 0;
   transition: opacity 0.2s ease;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .node.selected .node-tools {
