@@ -59,7 +59,7 @@
 # ThinkFlow
 
 A real-time collaborative mind mapping application built with Vue.js and Node.js.
-
+目前还未开发完毕，正在完善。
 ## Features
 
 - **Intuitive Interface**: Clean and modern UI design for easy mind mapping
